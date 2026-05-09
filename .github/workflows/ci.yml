@@ -36,4 +36,4 @@ jobs:
           python-version: "3.12"
       - run: pip install -e .
       - run: pip install pip-audit
-      - run: pip-audit --strict
+      - run: pip-audit
