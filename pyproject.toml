@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coworker"
+version = "0.1.0"
+description = "Vendor-neutral CLI to delegate bulk I/O off your reasoning model."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Arcanada"}]
+keywords = ["llm", "cli", "openai", "moonshot", "deepseek", "groq", "openrouter"]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Utilities",
+]
+dependencies = [
+  "openai>=1.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ruff>=0.6",
+  "pytest>=8",
+  "pip-audit>=2.7",
+]
+
+[project.scripts]
+coworker = "coworker.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Arcanada-one/coworker"
+Issues = "https://github.com/Arcanada-one/coworker/issues"
+
+[tool.setuptools.packages.find]
+include = ["coworker*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

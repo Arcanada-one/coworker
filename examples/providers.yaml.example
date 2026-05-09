@@ -1,0 +1,45 @@
+# Copy this file to $XDG_CONFIG_HOME/coworker/providers.yaml (default: ~/.config/coworker/providers.yaml)
+# Then export the matching API keys before running coworker.
+#
+# All five providers speak the OpenAI chat-completions API; only base_url and env_key differ.
+# Pricing is per 1M tokens in USD. cache_input applies to providers that bill prefix-cache reads at a discount.
+# Set pricing: null to silence cost tracking for a provider.
+
+moonshot:
+  base_url: https://api.moonshot.ai/v1
+  env_key: MOONSHOT_API_KEY
+  default_model: kimi-k2.6
+  pricing:
+    kimi-k2.6: {input: 0.95, output: 4.00, cache_input: 0.10}
+    kimi-k2.5: {input: 0.30, output: 1.50}
+  prefix_cache: true
+
+groq:
+  base_url: https://api.groq.com/openai/v1
+  env_key: GROQ_API_KEY
+  default_model: llama-3.3-70b-versatile
+  pricing:
+    llama-3.3-70b-versatile: {input: 0.59, output: 0.79}
+  prefix_cache: false
+
+openrouter:
+  base_url: https://openrouter.ai/api/v1
+  env_key: OPENROUTER_API_KEY
+  default_model: deepseek/deepseek-chat-v3.5
+  pricing: null
+  prefix_cache: depends_on_model
+
+deepseek:
+  base_url: https://api.deepseek.com/v1
+  env_key: DEEPSEEK_API_KEY
+  default_model: deepseek-chat
+  pricing:
+    deepseek-chat: {input: 0.14, output: 0.28, cache_input: 0.014}
+  prefix_cache: true
+
+openai:
+  base_url: https://api.openai.com/v1
+  env_key: OPENAI_API_KEY
+  default_model: gpt-5-mini
+  pricing: {}
+  prefix_cache: true

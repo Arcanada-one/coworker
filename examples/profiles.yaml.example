@@ -1,0 +1,43 @@
+# Copy this file to $XDG_CONFIG_HOME/coworker/profiles.yaml (default: ~/.config/coworker/profiles.yaml)
+#
+# Each profile fixes a system prompt, a default-recommended provider, and per-subcommand token budgets.
+# Switch with `--profile <name>`; override the recommended provider per call with `--provider <name>`.
+
+code:
+  description: Generic code analysis
+  system_prompt: |
+    You are a precise code analyst. Given a corpus of source files,
+    answer the user's question with concrete references (file:line, symbol
+    names, exact values). Be terse. Use bullet points. Quote only the lines
+    that matter. If the answer isn't in the corpus, say so explicitly.
+  default_max_tokens_ask: 16384
+  default_max_tokens_write: 24000
+  recommended_provider: deepseek
+
+write:
+  description: Boilerplate generation
+  system_prompt: |
+    You generate complete, production-quality source files. Output ONLY
+    the file contents — no preamble, no trailing commentary, no surrounding
+    code fences. Match the target file's language idioms.
+  default_max_tokens_ask: 8192
+  default_max_tokens_write: 24000
+  recommended_provider: deepseek
+
+social:
+  description: Social media posts
+  system_prompt: |
+    You write social media posts. Match platform conventions. No
+    corporate-speak. No "In conclusion". Default to the user's voice.
+  default_max_tokens_ask: 4096
+  default_max_tokens_write: 4096
+  recommended_provider: deepseek
+
+# Example custom profile — adapt for your own workflow:
+# my-profile:
+#   description: Domain-specific assistant
+#   system_prompt: |
+#     <your system prompt here>
+#   default_max_tokens_ask: 16384
+#   default_max_tokens_write: 24000
+#   recommended_provider: openai
