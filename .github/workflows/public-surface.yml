@@ -1,0 +1,16 @@
+name: public-surface
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-surface:
+    uses: Arcanada-one/datarim/.github/workflows/public-surface-lint.yml@main
+    with:
+      paths: 'README.md CHANGELOG.md docs'
