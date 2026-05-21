@@ -8,7 +8,6 @@ WARN is emitted to stderr.
 """
 
 import os
-import pathlib
 import subprocess
 import sys
 

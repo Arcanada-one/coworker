@@ -6,7 +6,6 @@ import os
 import pathlib
 import sys
 import time
-from typing import Optional
 
 from .config import BLOBS_ROOT, load_providers
 from .logger import get_cached_tokens, log_call
@@ -23,7 +22,7 @@ _EXTENSIONLESS_NAME_ALLOW: frozenset[str] = frozenset({
 GATE_BLOCKED_EXIT = 6
 
 
-def _check_file_type(path: pathlib.Path) -> Optional[str]:
+def _check_file_type(path: pathlib.Path) -> str | None:
     """Return None if path passes the content-type gate, else an error message."""
     ext = path.suffix.lower()
     if ext in _ALLOWED_EXTENSIONS:
@@ -79,7 +78,7 @@ def _build_gate_log_extra(
     gate_errors: list[str],
     allow_code: bool,
     paths: list[str],
-) -> Optional[dict]:
+) -> dict | None:
     """Return log-record metadata for an override-active call, else None.
 
     Only emit when the gate actually fired AND override bypassed the block,
