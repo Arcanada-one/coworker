@@ -98,7 +98,7 @@ Defaults (model, pricing, prefix-cache support) live in `providers.yaml` and are
 usage: coworker ask [-h] [--provider PROVIDER] [--model MODEL]
                     [--profile PROFILE] [--paths [FILE ...]]
                     --question QUESTION [--max-tokens MAX_TOKENS]
-                    [--task-id TASK_ID] [--no-log]
+                    [--task-id TASK_ID] [--no-log] [--allow-code]
 ```
 
 `--question` is required. If `--paths` is omitted and stdin has data, stdin is used as the corpus. The default profile is `code`.
@@ -114,7 +114,7 @@ coworker ask --paths src/main.py src/utils.py \
 usage: coworker write [-h] [--provider PROVIDER] [--model MODEL]
                       [--profile PROFILE] --spec SPEC [--context [FILE ...]]
                       --target TARGET [--max-tokens MAX_TOKENS]
-                      [--task-id TASK_ID] [--no-log] [--stdout]
+                      [--task-id TASK_ID] [--no-log] [--stdout] [--allow-code]
 ```
 
 `--spec` and `--target` are required. The model returns ONLY the file contents (code fences are stripped). Use `--stdout` to also echo the result.
@@ -151,6 +151,35 @@ Replays a logged corpus blob by sha256 prefix (≥2 chars). Only useful if you o
 COWORKER_LOG_CORPUS=1 coworker ask --question "..." --paths README.md
 coworker debug --hash 8a3f
 ```
+
+## File type gate
+
+Since **0.2.0**, `coworker ask --paths` and `coworker write --context` refuse non-text inputs by default. This is a deliberate policy choice: a delegated I/O worker should see documentation, not source code. Source code belongs at your reasoning model.
+
+**Allowed by default:**
+
+| Surface | Allow rule |
+|---------|-----------|
+| Extensions | `.md`, `.markdown`, `.txt` (case-insensitive) |
+| Extensionless names | `README`, `LICENSE`, `CHANGELOG`, `AUTHORS` (case-insensitive) |
+| Stdin | Always — gate applies only to `--paths` / `--context` |
+
+**Blocked:** everything else — including `.py`, `.ts`, `.json`, `.yaml`, `.rs`, `.go`, source code in any language, binary files. The call exits with code **6** and stderr lists each offending path.
+
+**Override** when you genuinely want code at the provider:
+
+```bash
+# Per call:
+coworker ask --paths src/main.py --question "..." --allow-code
+
+# Per shell session:
+export COWORKER_ALLOW_CODE=1
+coworker ask --paths src/main.py --question "..."
+```
+
+Every override writes `coworker.gate_override: true` and `coworker.gate_overridden_files: [...]` to the per-call log entry. Pipe `coworker stats --format json` or grep `~/.local/state/coworker/log/$(date +%F).jsonl` to audit.
+
+**Limitations.** The gate inspects the path string (`.suffix`), not the resolved target — a `.md` symlink to `.py` would pass. This is intent-based gating, not an adversarial sandbox. For adversarial scenarios, sanitize inputs upstream.
 
 ## Configuration & logging
 

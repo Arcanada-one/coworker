@@ -85,8 +85,13 @@ def log_call(
     system_prompt: str = "",
     log_dir: pathlib.Path = LOG_DIR,
     blobs_root: pathlib.Path = BLOBS_ROOT,
+    extra: dict | None = None,
 ) -> None:
-    """Two-tier log: JSONL metadata always; blob only if COWORKER_LOG_CORPUS=1."""
+    """Two-tier log: JSONL metadata always; blob only if COWORKER_LOG_CORPUS=1.
+
+    `extra` merges additional fields into the metadata record (e.g. gate-override
+    audit fields). Falsy value (None / empty dict) ⇒ no-op.
+    """
     if os.environ.get("COWORKER_NO_LOG") == "1":
         return
     try:
@@ -120,6 +125,9 @@ def log_call(
             payload, blob_hash = build_corpus_payload(user_messages, response_text)
             write_blob(payload, blob_hash, blobs_root=blobs_root)
             record["coworker.corpus_hash"] = blob_hash
+
+        if extra:
+            record.update(extra)
 
         write_jsonl_metadata(record, log_dir=log_dir)
     except Exception as e:

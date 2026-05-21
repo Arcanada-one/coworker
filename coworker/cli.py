@@ -2,15 +2,99 @@
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 import time
+from typing import Optional
 
 from .config import BLOBS_ROOT, load_providers
 from .logger import get_cached_tokens, log_call
 from .profiles import load_profile
 from .providers import make_client, resolve_provider_and_model
 from .stats import cmd_stats
+
+# File-type gate (TUNE-0258). Default-deny: only text-doc inputs pass.
+# Override via --allow-code flag or COWORKER_ALLOW_CODE=1 env var.
+_ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".md", ".markdown", ".txt"})
+_EXTENSIONLESS_NAME_ALLOW: frozenset[str] = frozenset({
+    "readme", "license", "changelog", "authors",
+})
+GATE_BLOCKED_EXIT = 6
+
+
+def _check_file_type(path: pathlib.Path) -> Optional[str]:
+    """Return None if path passes the content-type gate, else an error message."""
+    ext = path.suffix.lower()
+    if ext in _ALLOWED_EXTENSIONS:
+        return None
+    if ext == "" and path.stem.lower() in _EXTENSIONLESS_NAME_ALLOW:
+        return None
+    allowed = ", ".join(sorted(_ALLOWED_EXTENSIONS))
+    return (
+        f"file '{path}' (extension '{ext or '<none>'}') is not in the allowed "
+        f"list ({allowed}). Use Claude's Read tool for code analysis, "
+        f"or pass --allow-code / COWORKER_ALLOW_CODE=1 to override."
+    )
+
+
+def _resolve_allow_code(args) -> bool:
+    """Combine --allow-code CLI flag with COWORKER_ALLOW_CODE=1 env var."""
+    if getattr(args, "allow_code", False):
+        return True
+    return os.environ.get("COWORKER_ALLOW_CODE") == "1"
+
+
+def _apply_gate(paths: list[str], allow_code: bool) -> tuple[list[str], list[str]]:
+    """Run _check_file_type over every path; return (allowed, errors).
+
+    `allow_code` does not change the classification — callers decide how
+    to react to non-empty errors (override → WARN; default → ERROR + exit 6).
+    """
+    allowed: list[str] = []
+    errors: list[str] = []
+    for p in paths:
+        msg = _check_file_type(pathlib.Path(p))
+        if msg is None:
+            allowed.append(p)
+        else:
+            errors.append(msg)
+    return allowed, errors
+
+
+def _emit_gate_decision(errors: list[str], allow_code: bool) -> bool:
+    """Print gate errors to stderr. Return True if caller should abort with exit 6."""
+    if not errors:
+        return False
+    if allow_code:
+        for msg in errors:
+            print(f"[coworker] WARNING (override): {msg}", file=sys.stderr)
+        return False
+    for msg in errors:
+        print(f"[coworker] ERROR: {msg}", file=sys.stderr)
+    return True
+
+
+def _build_gate_log_extra(
+    gate_errors: list[str],
+    allow_code: bool,
+    paths: list[str],
+) -> Optional[dict]:
+    """Return log-record metadata for an override-active call, else None.
+
+    Only emit when the gate actually fired AND override bypassed the block,
+    i.e. the call sent non-text bytes to the provider. Keeps the log clean
+    for plain text-doc calls.
+    """
+    if not gate_errors or not allow_code:
+        return None
+    overridden = [
+        p for p in paths if _check_file_type(pathlib.Path(p)) is not None
+    ]
+    return {
+        "coworker.gate_override": True,
+        "coworker.gate_overridden_files": overridden,
+    }
 
 
 def build_messages(
@@ -52,7 +136,12 @@ def cmd_ask(args) -> int:
     system_prompt = profile["system_prompt"]
     max_tokens = args.max_tokens or profile.get("default_max_tokens_ask", 16384)
 
-    corpus = _build_corpus(args.paths or [])
+    allow_code = _resolve_allow_code(args)
+    paths = args.paths or []
+    _, gate_errors = _apply_gate(paths, allow_code)
+    if _emit_gate_decision(gate_errors, allow_code):
+        return GATE_BLOCKED_EXIT
+    corpus = _build_corpus(paths)
     messages = build_messages(system_prompt, corpus, args.question, corpus_first=True)
 
     client = make_client(prov_cfg)
@@ -64,6 +153,8 @@ def cmd_ask(args) -> int:
     )
     latency_ms = (time.monotonic() - t0) * 1000
 
+    log_extra = _build_gate_log_extra(gate_errors, allow_code, paths)
+
     out = resp.choices[0].message.content or ""
     if not out.strip():
         print("[coworker] empty response - try raising --max-tokens.", file=sys.stderr)
@@ -71,6 +162,7 @@ def cmd_ask(args) -> int:
             log_call(
                 resp, prov_name, prov_cfg, model, args.profile, "ask",
                 messages[1:], "", latency_ms, args.task_id, system_prompt,
+                extra=log_extra,
             )
         return 3
     print(out)
@@ -88,6 +180,7 @@ def cmd_ask(args) -> int:
         log_call(
             resp, prov_name, prov_cfg, model, args.profile, "ask",
             messages[1:], out, latency_ms, args.task_id, system_prompt,
+            extra=log_extra,
         )
     return 0
 
@@ -108,8 +201,14 @@ def cmd_write(args) -> int:
     system_prompt = profile["system_prompt"]
     max_tokens = args.max_tokens or profile.get("default_max_tokens_write", 24000)
 
+    allow_code = _resolve_allow_code(args)
+    context_paths = args.context or []
+    _, gate_errors = _apply_gate(context_paths, allow_code)
+    if _emit_gate_decision(gate_errors, allow_code):
+        return GATE_BLOCKED_EXIT
+
     refs = []
-    for p in args.context or []:
+    for p in context_paths:
         path = pathlib.Path(p)
         try:
             refs.append(f"<file path='{p}'>\n{path.read_text(errors='replace')}\n</file>")
@@ -168,6 +267,7 @@ def cmd_write(args) -> int:
         log_call(
             resp, prov_name, prov_cfg, model, args.profile, "write",
             messages[1:], body, latency_ms, args.task_id, system_prompt,
+            extra=_build_gate_log_extra(gate_errors, allow_code, context_paths),
         )
     return 0
 
@@ -207,6 +307,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_ask.add_argument("--max-tokens", type=int, default=None, dest="max_tokens")
     p_ask.add_argument("--task-id", default=None, dest="task_id")
     p_ask.add_argument("--no-log", action="store_true", dest="no_log")
+    p_ask.add_argument(
+        "--allow-code",
+        action="store_true",
+        dest="allow_code",
+        help=(
+            "Bypass the default text-only file gate (.md/.markdown/.txt only). "
+            "Equivalent to COWORKER_ALLOW_CODE=1. Overrides are logged with "
+            "coworker.gate_override=true."
+        ),
+    )
 
     p_write = sub.add_parser("write", help="Generate a file from a spec + context.")
     p_write.add_argument("--provider", default=None)
@@ -219,6 +329,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_write.add_argument("--task-id", default=None, dest="task_id")
     p_write.add_argument("--no-log", action="store_true", dest="no_log")
     p_write.add_argument("--stdout", action="store_true")
+    p_write.add_argument(
+        "--allow-code",
+        action="store_true",
+        dest="allow_code",
+        help=(
+            "Bypass the default text-only file gate on --context paths. "
+            "Equivalent to COWORKER_ALLOW_CODE=1. Overrides are logged with "
+            "coworker.gate_override=true."
+        ),
+    )
 
     p_stats = sub.add_parser("stats", help="Show usage statistics.")
     p_stats.add_argument("--since", default="7d", help="Duration: 7d, 30d, all")
