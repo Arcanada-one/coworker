@@ -101,3 +101,28 @@ Wire that to `PreToolUse:Read` in your Claude Code settings. When it fires, the 
 A reasoning-model session that reads ten 600-line files would cost on the order of $X. Doing the reading on DeepSeek + sending only the 100-line summary back to the reasoning model typically costs an order of magnitude less. The exact ratio depends on which provider you delegate to (`coworker stats` will show you concretely).
 
 This isn't theoretical: `coworker stats --by combined` is the honest readout. If the numbers don't add up for your workflow, don't delegate — the rule of thumb is a heuristic, not a gospel.
+
+## Combining with RTK
+
+`coworker` and [RTK](https://github.com/rtk-ai/rtk) target two different
+slices of the token-spend problem:
+
+- **`coworker`** intercepts **file reads** (and bulk-write prompt-building).
+  It delegates 600-line file scans to a cheap LLM and returns a tight summary.
+- **`rtk`** intercepts **shell-tool output**. It strips boilerplate from
+  `git status`, `pytest`, `find`, `docker logs`, etc. — typically a
+  60–90 % reduction in `prompt_tokens` for those commands.
+
+They compose cleanly. A single Claude Code session with both active:
+
+```bash
+coworker rtk install   # one-time: install upstream rtk binary
+coworker rtk enable    # register the hook in ~/.claude/settings.json
+coworker rtk status    # verify
+```
+
+After that, every Bash tool invocation runs through `rtk hook claude`
+before its output reaches Claude's context, while `Read`/file-reading
+work is delegated to `coworker ask` per the [Delegation rule of thumb](#delegation-rule-of-thumb).
+
+Full RTK plugin reference: [`docs/rtk-plugin.md`](rtk-plugin.md).

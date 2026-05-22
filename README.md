@@ -192,6 +192,10 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 
 `coworker` was designed to pair with reasoning agents like Claude Code, where the harness can shell out for bulk I/O instead of spending its own context window. See [`docs/claude-code-integration.md`](docs/claude-code-integration.md) for a delegation pattern.
 
+## Optional plugins
+
+- **`coworker rtk`** — opt-in integration with [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk). Registers a marker-tagged Claude Code hook that filters noisy shell output (`git`, `pytest`, `find`, `docker`...) before it reaches your context — typically 60–90 % `prompt_tokens` reduction on those commands. Default-off. See [`docs/rtk-plugin.md`](docs/rtk-plugin.md) for install / enable / disable / status workflow on macOS, Linux, and Windows.
+
 ## Documentation
 
 - [`docs/installation.md`](docs/installation.md)
@@ -199,6 +203,7 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 - [`docs/configuration.md`](docs/configuration.md)
 - [`docs/logging-privacy.md`](docs/logging-privacy.md)
 - [`docs/claude-code-integration.md`](docs/claude-code-integration.md)
+- [`docs/rtk-plugin.md`](docs/rtk-plugin.md)
 - [`docs/troubleshooting.md`](docs/troubleshooting.md)
 
 ## License

@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.0] — 2026-05-22
+
+### Added
+
+- **`coworker rtk` subcommand** — opt-in plugin that integrates [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk) with Claude Code. Four actions:
+  - `coworker rtk install` — print OS-specific install instructions for RTK (no actual install, supply-chain hygiene).
+  - `coworker rtk enable` — register a marker-tagged RTK hook (`_managed_by: "coworker-rtk"`) in `~/.claude/settings.json`. Idempotent — repeated calls produce exactly one hook block. Operator's pre-existing hooks (e.g. `coworker-hook-guard`) are preserved.
+  - `coworker rtk disable` — remove the marker-tagged block. Settings.json stays valid JSON.
+  - `coworker rtk status` — report `rtk` binary state, version, and hook state.
+- `docs/rtk-plugin.md` — cross-platform install guide (macOS / Linux / Windows), enable/disable workflow, known limitations, troubleshooting.
+- README "Optional plugins" section linking to the RTK plugin docs.
+- `docs/claude-code-integration.md` — new "Combining with RTK" section.
+- `scripts/bench_rtk.py` — hybrid synthetic-corpus + live-API benchmark, emits a Markdown table of `tokens_before / tokens_after / delta_%`.
+- `tests/test_rtk_plugin.py` — 13 unit tests (idempotency, fail-soft, OS detection, JSON validity, hook preservation).
+- `tests/test_rtk_live.py` — gated integration tests against Moonshot + DeepSeek (run with `RUN_LIVE_TESTS=1`).
+
+### Changed
+
+- None breaking. RTK plugin is opt-in (default-off); existing `ask`, `write`, `stats`, `debug` behaviour is unchanged.
+
+### Migration
+
+- **No migration required.** Existing installs continue to work. To activate the RTK plugin: install the upstream `rtk` binary (see `coworker rtk install`), then run `coworker rtk enable`. To deactivate: `coworker rtk disable`.
+
 ## [0.2.0] — 2026-05-22
 
 ### Changed (BREAKING)

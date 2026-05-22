@@ -349,6 +349,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_debug = sub.add_parser("debug", help="Inspect a corpus blob by hash prefix.")
     p_debug.add_argument("--hash", required=True, help="Hash prefix (min 2 chars).")
 
+    from .plugins import rtk
+    rtk.register(sub)
+
     return ap
 
 
@@ -364,6 +367,9 @@ def main() -> int:
         return cmd_stats(args)
     if args.subcommand == "debug":
         return cmd_debug(args)
+    if args.subcommand == "rtk":
+        from .plugins import rtk
+        return rtk.dispatch(args)
     return 1
 
 
