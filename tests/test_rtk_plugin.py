@@ -1,4 +1,4 @@
-"""Unit tests for coworker rtk plugin (TUNE-0271 Phase 1).
+"""Unit tests for coworker rtk plugin.
 
 Tests are fixture-driven: each test isolates settings.json under a tmp_path,
 verifies enable/disable idempotency by `_managed_by` marker, and confirms

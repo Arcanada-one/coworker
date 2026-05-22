@@ -13,10 +13,6 @@ already present. Disable filters all blocks bearing the marker. Operator's
 other hook entries (e.g. ``coworker-hook-guard``) are never touched.
 
 Settings.json is the single source of truth — no sidecar state file.
-
-Design decision references:
-  - creative-TUNE-0271-architecture-hook-installation.md § Decision (Option A)
-  - creative-TUNE-0271-architecture-plugin-namespace.md § Decision (Option 1)
 """
 
 from __future__ import annotations
@@ -39,7 +35,7 @@ COWORKER_RTK_VERSION_KEY = "_version"
 COWORKER_RTK_VERSION = 1
 
 # Canonical hook command — sourced from `rtk init -g --hook-only --no-patch`
-# (captured 2026-05-22, rtk 0.40.0; see datarim/tasks/TUNE-0271-fixtures.md).
+# (captured 2026-05-22 against rtk 0.40.0).
 RTK_HOOK_COMMAND = "rtk hook claude"
 RTK_HOOK_MATCHER = "Bash"
 
@@ -354,6 +350,14 @@ def _rtk_telemetry_state(binary: str | None) -> str:
 # ---------- argparse registration ----------
 
 
+def _add_config_path(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config-path",
+        default=None,
+        help="Override Claude Code settings.json path (default: ~/.claude/settings.json).",
+    )
+
+
 def register(subparsers: argparse._SubParsersAction) -> None:
     """Wire `coworker rtk {install,enable,disable,status}` into a parent parser."""
     p_rtk = subparsers.add_parser(
@@ -383,27 +387,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p_install.set_defaults(rtk_handler=cmd_install)
 
     p_enable = rtk_sub.add_parser("enable", help="Register the RTK hook in Claude Code settings.")
-    p_enable.add_argument(
-        "--config-path",
-        default=None,
-        help="Override Claude Code settings.json path (default: ~/.claude/settings.json).",
-    )
+    _add_config_path(p_enable)
     p_enable.set_defaults(rtk_handler=cmd_enable)
 
     p_disable = rtk_sub.add_parser("disable", help="Remove the RTK hook (filter by marker).")
-    p_disable.add_argument(
-        "--config-path",
-        default=None,
-        help="Override Claude Code settings.json path (default: ~/.claude/settings.json).",
-    )
+    _add_config_path(p_disable)
     p_disable.set_defaults(rtk_handler=cmd_disable)
 
     p_status = rtk_sub.add_parser("status", help="Report rtk binary + hook state.")
-    p_status.add_argument(
-        "--config-path",
-        default=None,
-        help="Override Claude Code settings.json path (default: ~/.claude/settings.json).",
-    )
+    _add_config_path(p_status)
     p_status.set_defaults(rtk_handler=cmd_status)
 
 
