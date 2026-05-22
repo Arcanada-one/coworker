@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.1] — 2026-05-23
+
+### Added
+
+- `coworker rtk install` accepts `--dry-run` (always-on for now; reserved for future exec mode) and `--method {brew,curl,cargo,manual}` to override the OS-default install branch when piping into scripts.
+- `coworker rtk status` reports a new `telemetry` field. Probes `rtk telemetry status` with a 2-second timeout and parses the `enabled: yes|no` line. Fail-soft semantics: missing binary / timeout / non-zero exit / unparseable output all print `telemetry: unavailable (<reason>)` and keep exit 0.
+
+### Changed
+
+- None breaking. All Phase A additions are additive on top of the four `coworker rtk` actions shipped in v0.3.0.
+
+### Migration
+
+- No migration required. Existing scripts that call `coworker rtk install` without flags keep their previous OS-detection behaviour.
+
 ## [0.3.0] — 2026-05-22
 
 ### Added

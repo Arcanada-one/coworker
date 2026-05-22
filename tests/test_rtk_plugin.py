@@ -252,3 +252,40 @@ def test_enable_writes_canonical_rtk_hook_command(tmp_path):
     assert rtk_hook_cmds == ["rtk hook claude"], (
         "canonical RTK hook command per upstream `rtk init -g --hook-only --no-patch` output"
     )
+
+
+# --- TUNE-0279 Phase A — UX-pass tests --------------------------------------
+
+
+def test_install_method_override_brew_skips_os_detection(capsys):
+    """`--method brew` prints only the brew line, regardless of OS."""
+    from argparse import Namespace
+
+    ns = Namespace(dry_run=True, method="brew")
+    with patch.object(rtk, "_detect_os", return_value="linux"):
+        rc = rtk.cmd_install(ns)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "brew install rtk" in out
+    assert "install.sh" not in out  # OS-detection branch skipped
+
+
+def test_install_dry_run_default_true_when_args_none(capsys):
+    """No args object — current behaviour preserved (always prints OS-default)."""
+    with patch.object(rtk, "_detect_os", return_value="macos"):
+        rc = rtk.cmd_install(None)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "brew install rtk" in out
+
+
+def test_status_telemetry_unavailable_when_rtk_missing(tmp_path, capsys):
+    """Telemetry field present in status, fail-soft when rtk binary absent."""
+    settings_path = tmp_path / "settings.json"
+    with patch.object(rtk, "_rtk_binary_path", return_value=None):
+        rc = rtk.cmd_status(config_path=settings_path)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "telemetry:" in out.lower()
+    assert "unavailable" in out.lower()
+    assert "rtk missing" in out.lower()

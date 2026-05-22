@@ -25,6 +25,7 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -168,10 +169,31 @@ def _filter_out_marker(data: dict) -> dict:
 # ---------- commands ----------
 
 
+_METHOD_LINES = {
+    "brew": "  macOS:   brew install rtk",
+    "curl": "  Linux:   curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh",
+    "cargo": "  Any OS:  cargo install --git https://github.com/rtk-ai/rtk   # requires `cargo` in PATH",
+    "manual": (
+        "  Manual:  download rtk-<target>.zip from https://github.com/rtk-ai/rtk/releases,\n"
+        "           extract, place `rtk` on PATH."
+    ),
+}
+
+
 def cmd_install(args: argparse.Namespace | None = None) -> int:
-    """Print OS-specific RTK install instructions. Never executes installers."""
-    osname = _detect_os()
+    """Print OS-specific RTK install instructions. Never executes installers.
+
+    Honours `args.method` (one of brew/curl/cargo/manual) to override the
+    OS-default branch. `args.dry_run` is currently always True (print-only);
+    the flag exists for future exec-mode opt-in.
+    """
+    method = getattr(args, "method", None)
     print("RTK install instructions (coworker does not install binaries itself):\n")
+    if method:
+        print(_METHOD_LINES[method])
+        print("\nAfter install: `coworker rtk enable` to register the Claude Code hook.")
+        return 0
+    osname = _detect_os()
     if osname == "macos":
         print("  macOS:   brew install rtk")
         print("           # or: curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh")
@@ -292,7 +314,41 @@ def cmd_status(
     else:
         print(f"  settings:    {target} (does not exist yet — Claude Code not configured)")
         print("  RTK hook:    disabled")
+
+    print(f"  telemetry:   {_rtk_telemetry_state(binary)}")
     return 0
+
+
+_TELEMETRY_ENABLED_RE = re.compile(r"^\s*enabled:\s*(\w+)\s*$", re.MULTILINE)
+
+
+def _rtk_telemetry_state(binary: str | None) -> str:
+    """Probe `rtk telemetry status` and return enabled|disabled|unavailable.
+
+    Fail-soft: any failure (missing binary, timeout, non-zero exit, unparseable
+    output) returns a human-readable `unavailable (<reason>)` string. Never
+    raises; caller's exit code stays 0.
+    """
+    if binary is None:
+        return "unavailable (rtk missing)"
+    try:
+        r = subprocess.run(
+            [binary, "telemetry", "status"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return "unavailable (timeout > 2s)"
+    except OSError as e:
+        return f"unavailable (exec error: {e.__class__.__name__})"
+    if r.returncode != 0:
+        return f"unavailable (rtk exit {r.returncode})"
+    m = _TELEMETRY_ENABLED_RE.search(r.stdout)
+    if not m:
+        return "unavailable (unparseable output)"
+    return "enabled" if m.group(1).lower() == "yes" else "disabled"
 
 
 # ---------- argparse registration ----------
@@ -312,6 +368,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     rtk_sub = p_rtk.add_subparsers(dest="rtk_action", required=True)
 
     p_install = rtk_sub.add_parser("install", help="Print OS-specific RTK install instructions.")
+    p_install.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=True,
+        help="Print install command without executing (default; coworker never runs installers).",
+    )
+    p_install.add_argument(
+        "--method",
+        choices=["brew", "curl", "cargo", "manual"],
+        default=None,
+        help="Override OS-default install method. 'cargo' requires `cargo` in PATH.",
+    )
     p_install.set_defaults(rtk_handler=cmd_install)
 
     p_enable = rtk_sub.add_parser("enable", help="Register the RTK hook in Claude Code settings.")
