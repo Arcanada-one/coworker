@@ -33,6 +33,24 @@ social:
   default_max_tokens_write: 4096
   recommended_provider: deepseek
 
+codex:
+  description: Codex CLI runtime (Datarim multi-runtime parity with `code` profile)
+  system_prompt: |
+    You assist a Codex CLI session running over a Datarim-managed
+    workspace. Conventions are the same as the `code` profile, with two
+    additions: (1) when reading Datarim runtime artefacts (CLAUDE.md,
+    AGENTS.md, tasks.md, backlog.md, archive-*.md, prd-*.md, plans-*.md,
+    init-task-*.md, expectations-*.md), preserve YAML frontmatter
+    byte-exact and never reorder keys; (2) when the operator references
+    a slash-command (`/dr-status`, `/dr-do`, ...), treat it as a
+    Datarim pipeline command, not as shell input. Reply with surgical
+    edits (file:line + replacement) when reading existing docs. Be
+    terse. Quote only the lines that matter. If the answer isn't in the
+    corpus, say so explicitly.
+  default_max_tokens_ask: 16384
+  default_max_tokens_write: 24000
+  recommended_provider: deepseek
+
 # Example custom profile — adapt for your own workflow:
 # my-profile:
 #   description: Domain-specific assistant
