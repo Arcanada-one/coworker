@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.4.1] — 2026-05-27
+
+### Fixed
+
+- Pre-existing CI red since v0.2.0: `test_file_gate.py` failed on GitHub Actions runners because `cmd_ask` / `cmd_write` called `load_providers()` before applying the file-type gate. On hosts without a populated `~/.config/coworker/providers.yaml`, the subprocess exited 1 with `FileNotFoundError` before the gate could return exit 6. Moved the gate ahead of provider loading — architecturally cleaner (path validity is independent of provider config) and unblocks CI on minimal environments. No new tests; existing `test_file_gate.py` subprocess tests now pass without a populated providers.yaml.
+
+### Docs
+
+- README `coworker write` section: document the new `--append` flag with a concrete example.
+- README §Optional plugins: replace the stale «60–90 % reduction» line with cross-agent parity wording pointing at the empirical effectiveness table.
+- `docs/rtk-plugin.md`: full intro rewrite with reduction-by-command-class table; new §Cross-agent parity covering shim mechanics; new §Codex one-time hook approval explanation; expanded §Known limitations (signal-command inflation, `rtk cc-economics` breakage, shim coverage scope, Windows status).
+- `docs/troubleshooting.md`: three new entries — `git push`/`git pull` agent hang after RTK enable (with verify-by-state workaround), Codex CLI hook-approval prompt explanation (not a bug), `rtk cc-economics` ccusage incompatibility.
+
 ## [0.4.0] — 2026-05-27
 
 ### Added
