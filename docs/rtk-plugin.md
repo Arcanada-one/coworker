@@ -1,23 +1,77 @@
 # RTK plugin (opt-in)
 
-> **Status:** ships in coworker v0.3.0 · default-off · no behaviour change for existing installs.
+> **Status:** ships in coworker v0.3.0 (Claude/Cursor hook) and v0.4.0 (Codex CLI parity via PATH-shim layer) · default-off · no behaviour change for existing installs.
 
 [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk) is a CLI proxy
 that strips noise from shell-tool output before it reaches your LLM's
-context — typically a 60–90 % reduction in `prompt_tokens` for verbose
-commands like `git status`, `pytest`, `find`, or `docker logs`.
+context. Effectiveness varies sharply by command type:
+
+| Command class | Typical reduction | Notes |
+|---|---|---|
+| Verbose long-form (`ls -la`, `find`, `ps aux`, `docker logs`) | **−50 % to −99 %** | Best case. The dominant RTK win. |
+| Bulk listings on heavily-modified state (`git status` on a dirty repo, large `grep -n`) | **−20 % to −50 %** | Solid win. |
+| Already-compact tools (`tree -L 2`, idempotent listings) | ≈ 0 % | No-op. |
+| Signal commands on a clean state (`git status` / `git log --oneline` on a clean repo) | **Can inflate** | Avoid — see § Known limitations. |
+
+Empirical adoption from live telemetry across active sessions: 33–52 %
+of `Bash` tool calls get rewritten. Run `rtk gain` and `rtk discover` for
+your own profile.
 
 Coworker ships a thin convenience plugin around upstream RTK:
 
 - `coworker rtk install` — print OS-specific install instructions for the `rtk` binary.
-- `coworker rtk enable`  — register a marker-tagged RTK hook in `~/.claude/settings.json`.
-- `coworker rtk disable` — remove the hook (filter by marker, leave operator's other hooks intact).
-- `coworker rtk status`  — report the rtk binary state and the hook state.
+- `coworker rtk enable`  — register a marker-tagged RTK hook in `~/.claude/settings.json` **AND** (since v0.4.0) install a PATH-shim layer at `~/.local/share/rtk-shims/` for Codex CLI parity, with marker-fenced PATH-injection blocks in `~/.zprofile` and `~/.bash_profile`.
+- `coworker rtk disable` — remove the hook **AND** the shim directory **AND** the PATH-injection blocks byte-for-byte.
+- `coworker rtk status`  — report rtk binary state + per-agent parity matrix (Claude / Cursor / Codex).
 
 The plugin **never** installs binaries itself. Operator picks the install
 vector. The hook is added with a private marker (`_managed_by:
 "coworker-rtk"`) so disable can identify and remove it exactly, without
-touching unrelated hook entries.
+touching unrelated hook entries. Shim directory and shell-profile blocks
+use marker fences (`# >>> coworker-rtk-codex-shims (managed) >>>` …
+`# <<<`) for the same reason.
+
+## Cross-agent parity (Claude / Cursor / Codex)
+
+Since v0.4.0, `coworker rtk enable` activates RTK for all three major
+agentic CLIs:
+
+| Agent | Mechanism | Verified |
+|---|---|---|
+| Claude Code | `PreToolUse` hook (`rtk hook claude`) in `~/.claude/settings.json` | empirical, byte-count probe on `ls -la <large-dir>` |
+| Cursor | Inherited via the shared `~/.claude/settings.json` channel | empirical, same probe |
+| Codex CLI | PATH-shim dispatcher at `~/.local/share/rtk-shims/` (12 wrapped commands), injected into login-shell `PATH` via marker-fenced block in `~/.zprofile` + `~/.bash_profile`. Codex's `bash -lc` wrapper picks up the shim ahead of the real binary. | empirical, `codex exec` byte-count probe (requires one-time hook approval — see below) |
+
+### Codex CLI: one-time hook approval
+
+Codex CLI 0.133.0+ ships a hook-trust system that hashes every
+PreToolUse / session hook and prompts the operator on first encounter
+(or after the hash changes). The first time you launch `codex exec` after
+`coworker rtk enable`, you will be asked to approve the new hook trust
+hashes. **This is normal**, not a bug. Approve once; subsequent sessions
+run without prompts until the hooks change.
+
+The PATH-shim itself does not appear in this prompt — Codex treats
+shell-environment `PATH` changes as ordinary user config, not as
+hooks. The prompt you see relates to whatever's in
+`~/.codex/hooks.json` at session start.
+
+### Why a PATH-shim rather than a Codex hook
+
+Empirical findings during v0.4.0 implementation:
+
+- Codex CLI 0.133.0 stable does not execute user-defined `PreToolUse`
+  hooks in the same way Claude Code does. The native-hook path is
+  blocked on upstream changes.
+- The shim layer is the workaround. Each shim hard-codes the absolute
+  path to the real binary at install time, gates execution on the
+  Claude-side marker (`_managed_by: coworker-rtk` in
+  `~/.claude/settings.json`), and `exec`'s `rtk` only when the marker is
+  present. Without the marker, the shim is a no-op pass-through to the
+  real binary.
+
+This means: `coworker rtk disable` flips the marker; the shims are
+still on `PATH` but functionally inert.
 
 ---
 
@@ -126,10 +180,40 @@ Prints:
 
 ## Known limitations
 
+- **Signal-command inflation on clean state.** RTK rewrites `git push`,
+  `git pull`, `git fetch`, `git merge`, `git status`, `git log` and
+  similar control-signal commands the same way it rewrites bulk
+  listings. On a clean repo where the canonical output is short
+  (`Everything up-to-date`, `To github.com:...`, branch SHA markers),
+  RTK can either strip the canonical marker or add wrapper boilerplate.
+  Agents that wait for the canonical marker will treat the rewritten
+  output as «nothing happened» and hang or retry. **Workaround:** after
+  any `git push` / `git pull`, verify by state — compare
+  `git rev-parse HEAD` against `git rev-parse @{u}` rather than parsing
+  stdout. Native upstream fix is tracked as a feature-request to
+  rtk-ai/rtk: signal-vs-bulk command classification. If you hit this in
+  practice, you can disable RTK for the session (`coworker rtk
+  disable`), run the git op, then re-enable.
+- **`rtk cc-economics` is broken on current `ccusage`.** Other rtk
+  subcommands (`gain`, `discover`, `session`) work fine; `cc-economics`
+  crashes with `Invalid JSON structure for monthly data: missing field
+  'month'`. Filed upstream / in-coworker backlog. Workaround: read
+  `rtk gain` + `ccusage` separately for now.
+- **Codex CLI prompts on first session after enable.** See
+  § «Codex CLI: one-time hook approval» above. Not a regression — a
+  feature of Codex's hook-trust system.
+- **Codex shim coverage is fixed.** The shim directory wraps 12
+  commands (`ls`, `tree`, `git`, `find`, `grep`, `diff`, `gh`, `glab`,
+  `psql`, `pnpm`, `docker`, `kubectl`, `wget`) — those whose real
+  binary is on `PATH` at install time. Commands not in this list
+  bypass RTK entirely when invoked through Codex. The wrapped set
+  matches RTK's own built-in command surface; expanding requires both
+  upstream RTK support and a coworker re-enable.
 - **Windows hook surface.** Claude Code's hook system is well-tested on
   macOS and Linux. Windows hook behaviour may evolve — if `rtk hook
   claude` does not fire, fall back to the upstream RTK CLAUDE.md
-  injection (`rtk init -g --claude-md`).
+  injection (`rtk init -g --claude-md`). Codex shim layer on Windows is
+  an explicit follow-up — not shipped in v0.4.0.
 - **Claude Code built-in tools bypass the hook.** Tool calls executed by
   Claude Code's `Read` / `Edit` / `Write` tools do not produce shell
   stdout, so they pass through unchanged. The hook benefits the `Bash`

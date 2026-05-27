@@ -114,13 +114,26 @@ coworker ask --paths src/main.py src/utils.py \
 usage: coworker write [-h] [--provider PROVIDER] [--model MODEL]
                       [--profile PROFILE] --spec SPEC [--context [FILE ...]]
                       --target TARGET [--max-tokens MAX_TOKENS]
-                      [--task-id TASK_ID] [--no-log] [--stdout] [--allow-code]
+                      [--task-id TASK_ID] [--no-log] [--stdout] [--append]
+                      [--allow-code]
 ```
 
 `--spec` and `--target` are required. The model returns ONLY the file contents (code fences are stripped). Use `--stdout` to also echo the result.
 
 ```bash
 coworker write --spec "MIT LICENSE for project Foo" --target LICENSE
+```
+
+By default, `--target` is **truncate-written** — any existing contents
+are replaced. Since v0.4.0, pass `--append` to append the generated body
+to an existing file instead (mutually exclusive with `--stdout`). If
+`--target` doesn't exist yet, `--append` falls back to a normal write.
+
+```bash
+coworker write --spec "Add Phase 7 release notes" \
+               --context CHANGELOG.md \
+               --target CHANGELOG.md \
+               --append
 ```
 
 ### `coworker stats`
@@ -194,7 +207,7 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 
 ## Optional plugins
 
-- **`coworker rtk`** — opt-in integration with [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk). Registers a marker-tagged Claude Code hook that filters noisy shell output (`git`, `pytest`, `find`, `docker`...) before it reaches your context — typically 60–90 % `prompt_tokens` reduction on those commands. Default-off. See [`docs/rtk-plugin.md`](docs/rtk-plugin.md) for install / enable / disable / status workflow on macOS, Linux, and Windows.
+- **`coworker rtk`** — opt-in integration with [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk). Default-off. Since v0.4.0, `coworker rtk enable` activates RTK across three agentic CLIs at once: Claude Code (PreToolUse hook), Cursor (inherits via shared settings.json), and Codex CLI (PATH-shim layer at `~/.local/share/rtk-shims/` with marker-fenced injection into `~/.zprofile` / `~/.bash_profile`). Empirical reduction varies sharply by command — see [`docs/rtk-plugin.md`](docs/rtk-plugin.md) § effectiveness table. Default-off; one-time Codex hook approval prompt on first session after enable.
 
 ## Documentation
 

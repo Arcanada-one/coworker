@@ -112,6 +112,56 @@ python -c "import yaml; yaml.safe_load(open('$HOME/.config/coworker/providers.ya
 
 The traceback points at the offending line.
 
+## `git push` / `git pull` agent hangs after `coworker rtk enable`
+
+Symptom: your agent runs `git push origin <branch>`, the tool result
+comes back unusually short (or missing the canonical
+`To github.com:...` line), and the agent then re-runs the command in the
+background and sits for minutes treating it as hung when the push
+actually succeeded on the first try.
+
+Cause: the RTK rewrite hook treats `git push` / `git pull` / `git fetch`
+/ `git merge` / `gh pr create` like bulk listings and can strip or
+reshape the canonical control-signal markers an agent waits for. On a
+clean repo this is especially visible — RTK can inflate already-tiny
+output (`git status` on a clean repo goes from ~59 bytes raw to ~123
+bytes rewritten) or, depending on rtk version, replace the canonical
+marker with a stub.
+
+Workarounds:
+
+1. **Verify by state.** Teach your agent to compare
+   `git rev-parse HEAD` against `git rev-parse @{u}` after every push.
+   If they match, the push succeeded regardless of what RTK did with
+   stdout. This is the most robust fix and applies to any future
+   output-rewriter.
+2. **Temporary disable for the session.** Run `coworker rtk disable`,
+   do the git operation, then `coworker rtk enable` again. The marker
+   flip is instant; no PATH change.
+3. **Permanent passthrough** (manual, until v0.4.x ships a flag): edit
+   `~/.claude/settings.json` and add a guard before the `rtk hook
+   claude` command that bypasses the rewrite for signal commands. Track
+   the canonical fix at the project backlog (signal-vs-bulk command
+   classification in upstream RTK).
+
+## Codex CLI prompts to approve hooks on first session after `coworker rtk enable`
+
+Codex CLI 0.133.0+ hashes every PreToolUse / session hook and prompts
+the operator on first encounter (or after the hash changes). This is
+Codex's hook-trust mechanism, not a regression in coworker. Approve
+once; subsequent sessions run without prompts until the hooks change.
+
+The shim layer that gives Codex RTK parity does **not** appear in this
+prompt — Codex treats shell-environment `PATH` changes as ordinary user
+config. The prompt relates to whatever's in `~/.codex/hooks.json`, which
+coworker does not modify in v0.4.0.
+
+## `rtk cc-economics` crashes with «missing field 'month'»
+
+Known incompatibility between rtk 0.40.0 and current `ccusage` JSON
+schema. Other rtk subcommands (`gain`, `discover`, `session`) work
+fine. Workaround: read `rtk gain` and `ccusage` separately for now.
+
 ## Still stuck
 
 Open an issue at https://github.com/Arcanada-one/coworker/issues with:
