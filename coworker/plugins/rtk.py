@@ -28,17 +28,20 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import rtk_codex_shims
+from . import rtk_codex_shims, rtk_passthrough
 
 # Marker contract — keep these as the public stable surface; tests pin both.
 COWORKER_RTK_MARKER = "_managed_by"
 COWORKER_RTK_MARKER_VALUE = "coworker-rtk"
 COWORKER_RTK_VERSION_KEY = "_version"
-COWORKER_RTK_VERSION = 1
+# v2: hook command wraps `rtk hook claude` with a signal-vs-bulk
+# passthrough guard. Operators upgrading from v1 retain their data; the
+# block is rewritten on the next `coworker rtk enable`.
+COWORKER_RTK_VERSION = 2
 
-# Canonical hook command — sourced from `rtk init -g --hook-only --no-patch`
-# (captured 2026-05-22 against rtk 0.40.0).
-RTK_HOOK_COMMAND = "rtk hook claude"
+# Guard wrapper — vendored bash script copied into PATH on enable.
+RTK_GUARD_FILENAME = "rtk-signal-guard.sh"
+RTK_GUARD_INSTALL_PATH = Path.home() / ".local" / "bin" / RTK_GUARD_FILENAME
 RTK_HOOK_MATCHER = "Bash"
 
 DEFAULT_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
@@ -108,13 +111,53 @@ def _atomic_write_json(path: Path, data: dict) -> None:
         raise
 
 
-def _rtk_hook_block() -> dict:
+def _vendored_guard_path() -> Path:
+    """Path to the bundled guard inside the installed package.
+
+    On-disk filename uses Python's underscore convention; the operator-facing
+    install filename (``RTK_GUARD_FILENAME``) keeps the kebab-case used
+    elsewhere in the rtk plugin surface.
+    """
+    return Path(__file__).resolve().parent / "rtk_signal_guard.sh"
+
+
+def _install_guard(install_path: Path | None = None) -> Path:
+    """Copy the vendored guard into the operator's PATH. Returns the install path.
+
+    Always overwrites — guard semantics are owned by the plugin version, not
+    by accumulated operator edits.
+    """
+    src = _vendored_guard_path()
+    if not src.exists():
+        raise RuntimeError(f"vendored guard missing: {src}")
+    dst = Path(install_path) if install_path is not None else RTK_GUARD_INSTALL_PATH
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dst)
+    dst.chmod(0o755)
+    return dst
+
+
+def _remove_guard(install_path: Path | None = None) -> bool:
+    """Remove the installed guard if present. Idempotent."""
+    dst = Path(install_path) if install_path is not None else RTK_GUARD_INSTALL_PATH
+    if dst.exists():
+        dst.unlink()
+        return True
+    return False
+
+
+def _rtk_hook_block(guard_path: Path | None = None) -> dict:
+    """Build the PreToolUse hook block. The command points at the guard
+    wrapper (which forwards to `rtk hook claude` for bulk commands and
+    short-circuits for signal commands).
+    """
+    cmd_path = str(guard_path) if guard_path is not None else str(RTK_GUARD_INSTALL_PATH)
     return {
         "matcher": RTK_HOOK_MATCHER,
         "hooks": [
             {
                 "type": "command",
-                "command": RTK_HOOK_COMMAND,
+                "command": cmd_path,
                 COWORKER_RTK_MARKER: COWORKER_RTK_MARKER_VALUE,
                 COWORKER_RTK_VERSION_KEY: COWORKER_RTK_VERSION,
             }
@@ -213,12 +256,14 @@ def cmd_enable(
     args: argparse.Namespace | None = None,
     *,
     config_path: Path | None = None,
+    guard_install_path: Path | None = None,
+    passthrough_store_path: Path | None = None,
 ) -> int:
-    """Append marker-tagged RTK hook to settings.json. Idempotent.
+    """Install signal-vs-bulk guard wrapper, register it in settings.json,
+    seed the passthrough allowlist with defaults. Idempotent.
 
-    Fail-soft: if rtk binary missing, print WARN and continue with hook write
-    (operator may have rtk installed in a non-default PATH; hook only matters
-    when Claude Code runs it).
+    Fail-soft: if rtk binary missing, print WARN and continue (hook still
+    written; operator may install rtk later).
     """
     target = _resolve_config_path(config_path)
 
@@ -229,19 +274,39 @@ def cmd_enable(
             file=sys.stderr,
         )
 
+    # Install vendored guard before the settings.json write — if guard
+    # install fails, we want settings.json untouched.
+    try:
+        guard_path = _install_guard(guard_install_path)
+    except (OSError, RuntimeError) as e:
+        print(f"[coworker rtk] ERROR: guard install failed: {e}", file=sys.stderr)
+        return 1
+    print(f"Signal/bulk guard installed at {guard_path}.")
+
+    # Seed passthrough allowlist with defaults (idempotent — operator
+    # additions preserved across re-enable).
+    if rtk_passthrough.seed_default(store_path=passthrough_store_path):
+        store = rtk_passthrough._store_path(passthrough_store_path)
+        print(f"Passthrough allowlist seeded with {len(rtk_passthrough.DEFAULT_PATTERNS)} defaults at {store}.")
+    else:
+        store = rtk_passthrough._store_path(passthrough_store_path)
+        print(f"Passthrough allowlist already present at {store} ({rtk_passthrough.count(store_path=passthrough_store_path)} patterns).")
+
     try:
         data = _load_settings(target)
     except RuntimeError as e:
         print(f"[coworker rtk] ERROR: {e}", file=sys.stderr)
         return 1
 
+    # v1 block (bare `rtk hook claude` command) must be replaced by the
+    # v2 guard-wrapper block. Filter out any prior marker-tagged entries
+    # before appending the new one.
     if _count_markers(data) >= 1:
-        print(f"RTK hook already enabled in {target} (no changes made).")
-        return 0
+        data = _filter_out_marker(data)
 
-    data.setdefault("hooks", {}).setdefault("PreToolUse", []).append(_rtk_hook_block())
+    data.setdefault("hooks", {}).setdefault("PreToolUse", []).append(_rtk_hook_block(guard_path))
     _atomic_write_json(target, data)
-    print(f"RTK hook enabled in {target}.")
+    print(f"RTK hook (guard wrapper) registered in {target}.")
 
     # Codex CLI parity layer (PATH-shim — Codex 0.x does not exec user hooks).
     print()
@@ -255,28 +320,35 @@ def cmd_disable(
     args: argparse.Namespace | None = None,
     *,
     config_path: Path | None = None,
+    guard_install_path: Path | None = None,
 ) -> int:
-    """Filter out every marker-tagged hook entry. No-op if none present."""
+    """Filter out every marker-tagged hook entry + remove guard wrapper.
+
+    The passthrough allowlist is preserved (operator data) — only `--reset-defaults`
+    on `coworker rtk passthrough` rewinds it.
+    """
     target = _resolve_config_path(config_path)
 
-    if not target.exists():
-        print(f"{target} does not exist — nothing to disable.")
-        return 0
+    settings_changed = False
+    if target.exists():
+        try:
+            data = _load_settings(target)
+        except RuntimeError as e:
+            print(f"[coworker rtk] ERROR: {e}", file=sys.stderr)
+            return 1
+        before = _count_markers(data)
+        if before > 0:
+            data = _filter_out_marker(data)
+            _atomic_write_json(target, data)
+            print(f"RTK hook disabled in {target} (removed {before} marker block(s)).")
+            settings_changed = True
+    if not settings_changed:
+        print(f"RTK hook not enabled in {target} — nothing to filter.")
 
-    try:
-        data = _load_settings(target)
-    except RuntimeError as e:
-        print(f"[coworker rtk] ERROR: {e}", file=sys.stderr)
-        return 1
-
-    before = _count_markers(data)
-    if before == 0:
-        print(f"RTK hook not enabled in {target} — nothing to disable.")
-        return 0
-
-    data = _filter_out_marker(data)
-    _atomic_write_json(target, data)
-    print(f"RTK hook disabled in {target} (removed {before} marker block(s)).")
+    # Remove vendored guard wrapper.
+    if _remove_guard(guard_install_path):
+        dst = Path(guard_install_path) if guard_install_path else RTK_GUARD_INSTALL_PATH
+        print(f"Signal/bulk guard removed at {dst}.")
 
     # Tear down Codex parity layer.
     print()
@@ -324,6 +396,27 @@ def cmd_status(
         print("  RTK hook:    disabled")
 
     print(f"  telemetry:   {_rtk_telemetry_state(binary)}")
+
+    # Signal/bulk passthrough store summary.
+    store_path = getattr(args, "passthrough_store_path", None)
+    store_path = Path(store_path) if store_path else None
+    pass_count = rtk_passthrough.count(store_path=store_path)
+    pass_path = rtk_passthrough._store_path(store_path)
+    print(f"  passthrough patterns: {pass_count} (store: {pass_path})")
+    # Warn when allowlist is configured but guard wrapper is not in
+    # settings.json — operator probably ran `coworker rtk disable` but kept
+    # custom patterns; the patterns will not apply until next `enable`.
+    if pass_count > 0 and target.exists():
+        try:
+            _data_now = _load_settings(target)
+            if _count_markers(_data_now) == 0:
+                print(
+                    "  WARNING: passthrough patterns configured but guard not installed; "
+                    "run `coworker rtk enable`.",
+                    file=sys.stderr,
+                )
+        except RuntimeError:
+            pass
 
     # Cross-agent parity matrix.
     cx = rtk_codex_shims.status()
@@ -420,6 +513,9 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p_status = rtk_sub.add_parser("status", help="Report rtk binary + hook state.")
     _add_config_path(p_status)
     p_status.set_defaults(rtk_handler=cmd_status)
+
+    # Signal/bulk passthrough allowlist subcommand tree.
+    rtk_passthrough.register_passthrough(rtk_sub)
 
 
 def dispatch(args: argparse.Namespace) -> int:

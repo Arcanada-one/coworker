@@ -88,6 +88,52 @@ def _resolve_real_binary(cmd: str) -> str | None:
     return found
 
 
+# Shim commands that emit control-signal output (canonical markers agents
+# parse to make next-step decisions). For these, the shim consults the
+# passthrough allowlist before delegating to rtk — match ⇒ exec real binary,
+# no match ⇒ exec rtk for token reduction. Other shims always go through rtk.
+_PASSTHROUGH_AWARE_CMDS: frozenset[str] = frozenset({"git", "gh"})
+
+
+def _passthrough_snippet(cmd: str) -> str:
+    """Bash snippet that scans the reconstructed command line against the
+    passthrough allowlist. Inserted between marker-probe and rtk exec for
+    signal-aware shims only. Substring match, falls back to embedded
+    defaults when the store is absent or unparseable.
+    """
+    return f"""# Signal/bulk passthrough check (jq-based; fallback to embedded defaults).
+PASSTHROUGH_STORE="${{COWORKER_RTK_PASSTHROUGH_PATH:-$HOME/.config/coworker/rtk-passthrough.json}}"
+DEFAULT_PASSTHROUGH='git push
+git pull
+git fetch
+git merge
+git status
+git remote
+git rev-parse
+git branch
+gh pr
+gh issue
+gh release
+gh api
+gh run'
+FULL_CMDLINE={cmd!r}' '"$*"
+if command -v jq >/dev/null 2>&1 && [ -f "$PASSTHROUGH_STORE" ]; then
+    _patterns=$(jq -re '.patterns[]?' "$PASSTHROUGH_STORE" 2>/dev/null || echo "$DEFAULT_PASSTHROUGH")
+    [ -z "$_patterns" ] && _patterns="$DEFAULT_PASSTHROUGH"
+else
+    _patterns="$DEFAULT_PASSTHROUGH"
+fi
+while IFS= read -r _pat; do
+    [ -z "$_pat" ] && continue
+    case "$FULL_CMDLINE" in
+        *"$_pat"*) exec "$REAL_BIN" "$@" ;;
+    esac
+done <<PASSTHROUGH_EOF
+$_patterns
+PASSTHROUGH_EOF
+"""
+
+
 def _shim_body(cmd: str, real_binary: str, rtk_binary: str) -> str:
     """Render shim body. Real binary resolved at install time.
 
@@ -96,8 +142,11 @@ def _shim_body(cmd: str, real_binary: str, rtk_binary: str) -> str:
         internally calls the real binary; this prevents fork-bomb).
       - Probe Claude settings.json marker — single on/off source of truth.
       - If marker absent OR rtk binary missing — exec real binary.
-      - If everything in place — exec `rtk <cmd> "$@"`.
+      - For signal-aware shims (git, gh): consult passthrough allowlist;
+        match ⇒ exec real binary (raw stdout reaches the agent).
+      - Otherwise — exec `rtk <cmd> "$@"`.
     """
+    passthrough = _passthrough_snippet(cmd) if cmd in _PASSTHROUGH_AWARE_CMDS else ""
     return f"""#!/bin/bash
 # Coworker RTK shim for `{cmd}` — Codex CLI parity layer.
 # Managed by `coworker rtk enable/disable`. Do not hand-edit.
@@ -124,6 +173,7 @@ if [ ! -x "$RTK_BIN" ]; then
     exec "$REAL_BIN" "$@"
 fi
 
+{passthrough}
 export _COWORKER_RTK_SHIM_ACTIVE=1
 exec "$RTK_BIN" {cmd!r} "$@"
 """

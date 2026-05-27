@@ -40,6 +40,11 @@ Issues = "https://github.com/Arcanada-one/coworker/issues"
 [tool.setuptools.packages.find]
 include = ["coworker*"]
 
+[tool.setuptools.package-data]
+# Vendored bash assets shipped inside the coworker.plugins package
+# (e.g. rtk_signal_guard.sh — copied to ~/.local/bin on `coworker rtk enable`).
+"coworker.plugins" = ["*.sh"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"

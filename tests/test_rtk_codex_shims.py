@@ -226,3 +226,90 @@ def test_status_reports_state(isolated):
     assert s["shims_present"] is True
     assert s["codex_block_present"] is True
     assert s["shim_files_count"] == 3
+
+
+# --- Signal/bulk passthrough parity ---------------------------------------
+
+
+def test_git_shim_body_contains_passthrough_snippet(isolated):
+    """The `git` shim is signal-aware: its body must include the passthrough
+    check (so `git push` etc. bypass rtk and emit raw stdout)."""
+    mod = isolated["mod"]
+    body = mod._shim_body("git", "/usr/bin/git", str(isolated["fake_rtk"]))
+    assert "Signal/bulk passthrough check" in body
+    assert "PASSTHROUGH_STORE" in body
+    assert "git push" in body  # default pattern present in embedded fallback
+
+
+def test_gh_shim_body_contains_passthrough_snippet(isolated):
+    mod = isolated["mod"]
+    body = mod._shim_body("gh", "/usr/local/bin/gh", str(isolated["fake_rtk"]))
+    assert "Signal/bulk passthrough check" in body
+    assert "gh pr" in body
+
+
+def test_ls_shim_body_does_not_contain_passthrough_snippet(isolated):
+    """Non-signal shims (ls, grep, find, etc.) always delegate to rtk —
+    no passthrough check overhead."""
+    mod = isolated["mod"]
+    body = mod._shim_body("ls", "/bin/ls", str(isolated["fake_rtk"]))
+    assert "Signal/bulk passthrough check" not in body
+    assert "PASSTHROUGH_STORE" not in body
+
+
+def test_git_shim_executes_real_binary_on_signal_command(isolated, tmp_path):
+    """Behavioural parity test: git shim with `push origin main` args MUST
+    exec the real git binary (raw stdout reaches the agent), not rtk."""
+    import subprocess
+
+    mod = isolated["mod"]
+    # Marker file present — guard's on/off probe satisfied.
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"hooks":{"PreToolUse":[{"hooks":[{"_managed_by":"coworker-rtk"}]}]}}')
+
+    # Render shim body, write to a tmp file, exec it.
+    body = mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    shim_file = tmp_path / "git-shim.sh"
+    shim_file.write_text(body)
+    shim_file.chmod(0o755)
+
+    env = {
+        "HOME": str(isolated["fake_home"]),
+        "PATH": "/usr/bin:/bin",
+        # No passthrough store ⇒ guard falls back to embedded defaults.
+    }
+    result = subprocess.run(
+        [str(shim_file), "push", "origin", "main"],
+        capture_output=True, text=True, env=env, timeout=5,
+    )
+    assert result.returncode == 0, f"shim crashed: {result.stderr}"
+    assert "real-git" in result.stdout, (
+        f"signal command must hit real binary, got stdout={result.stdout!r}"
+    )
+    assert "rtk-mock" not in result.stdout
+
+
+def test_git_shim_delegates_to_rtk_on_bulk_command(isolated, tmp_path):
+    """Counterpart: git shim with `log -p` (bulk diff) MUST delegate to rtk —
+    `git log -p` is NOT in the default passthrough allowlist."""
+    import subprocess
+
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"hooks":{"PreToolUse":[{"hooks":[{"_managed_by":"coworker-rtk"}]}]}}')
+
+    body = mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    shim_file = tmp_path / "git-shim.sh"
+    shim_file.write_text(body)
+    shim_file.chmod(0o755)
+
+    env = {"HOME": str(isolated["fake_home"]), "PATH": "/usr/bin:/bin"}
+    result = subprocess.run(
+        [str(shim_file), "log", "-p", "-n", "5"],
+        capture_output=True, text=True, env=env, timeout=5,
+    )
+    assert result.returncode == 0, f"shim crashed: {result.stderr}"
+    assert "rtk-mock" in result.stdout, (
+        f"bulk command must delegate to rtk, got stdout={result.stdout!r}"
+    )
+    assert "real-git" not in result.stdout
