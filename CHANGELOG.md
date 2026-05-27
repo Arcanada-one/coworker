@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.4.0] — 2026-05-27
+
+### Added
+
+- **Codex CLI parity for `coworker rtk` via generic shim dispatcher.** `coworker rtk enable` now installs a wrapper-shim directory at `~/.local/share/rtk-shims/` containing 12 commands (`ls`, `tree`, `git`, `find`, `grep`, `diff`, `gh`, `glab`, `psql`, `pnpm`, `docker`, `kubectl`, `wget` — filtered to those present on `PATH`). Shims hard-code the absolute path to the real binary at install time, gate execution on the same `_managed_by: coworker-rtk` marker used by the Claude hook, and `exec` `rtk` only when the marker is present. `coworker rtk disable` removes shims and PATH injection byte-for-byte. New module: `coworker/plugins/rtk_codex_shims.py` (~400 LoC). 10 new unit tests in `tests/test_rtk_codex_shims.py`.
+- **PATH injection for Codex `bash -lc` login shells.** Adds a marker-fenced block (`# >>> coworker-rtk-codex-shims (managed) >>>`) to `~/.zprofile` and `~/.bash_profile` so the shim directory takes precedence over real binaries inside Codex's login-shell wrapper. Block is regex-stripped on `disable`; idempotent on repeated `enable`.
+- **`coworker write --append`** — opt-in append mode for the `write` subcommand. Mutually exclusive with `--stdout`. Falls back to write when the target does not exist; inserts a single newline separator when the existing tail is non-terminated. Closes a long-standing footgun where `coworker write --target Y` with «append» intent silently truncated `Y`. 6 new unit tests in `tests/test_write_append.py`.
+- `coworker rtk status` now reports a parity matrix: `Claude: enabled/disabled · Cursor: inherited · Codex: enabled (shims=N, codex_config=patched) | disabled`.
+
+### Security
+
+- Shim directory created with mode `0o700`; install refuses to proceed if the directory pre-exists with world- or group-writable permissions (mitigation against PATH-shim hijacking).
+- Shim body uses absolute `REAL_BIN` and `RTK_BIN` paths resolved at install time — runtime `PATH` reordering cannot redirect to a malicious binary.
+- Recursion guard via `_COWORKER_RTK_SHIM_ACTIVE` env var prevents infinite loop when `rtk` internally invokes the real binary.
+
+### Known limitations
+
+- macOS / Linux only. Windows shim layout is an explicit follow-up.
+- Codex CLI 0.133.0 ignores user-defined `PreToolUse` hooks empirically; native `rtk hook codex` is not viable until upstream Codex ships a working hook contract.
+- `rtk cc-economics` is broken against the current `ccusage` JSON schema (`missing field 'month'`). Separate from this release.
+
+### Changed
+
+- None breaking. All additions are opt-in (require explicit `coworker rtk enable` or `coworker write --append`).
+
+### Migration
+
+- No migration required. Operators running `coworker rtk enable` for the first time on this version automatically receive the Codex parity layer; operators with v0.3.x already enabled need a single `coworker rtk disable && coworker rtk enable` cycle to install the new shim directory and PATH block.
+
 ## [0.3.1] — 2026-05-23
 
 ### Added

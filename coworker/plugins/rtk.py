@@ -28,6 +28,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from . import rtk_codex_shims
+
 # Marker contract — keep these as the public stable surface; tests pin both.
 COWORKER_RTK_MARKER = "_managed_by"
 COWORKER_RTK_MARKER_VALUE = "coworker-rtk"
@@ -239,7 +241,13 @@ def cmd_enable(
 
     data.setdefault("hooks", {}).setdefault("PreToolUse", []).append(_rtk_hook_block())
     _atomic_write_json(target, data)
-    print(f"RTK hook enabled in {target}. Run `coworker rtk status` to verify.")
+    print(f"RTK hook enabled in {target}.")
+
+    # Codex CLI parity layer (PATH-shim — Codex 0.x does not exec user hooks).
+    print()
+    rtk_codex_shims.enable_codex_parity()
+
+    print("\nRun `coworker rtk status` to verify.")
     return 0
 
 
@@ -269,6 +277,10 @@ def cmd_disable(
     data = _filter_out_marker(data)
     _atomic_write_json(target, data)
     print(f"RTK hook disabled in {target} (removed {before} marker block(s)).")
+
+    # Tear down Codex parity layer.
+    print()
+    rtk_codex_shims.disable_codex_parity()
     return 0
 
 
@@ -312,6 +324,17 @@ def cmd_status(
         print("  RTK hook:    disabled")
 
     print(f"  telemetry:   {_rtk_telemetry_state(binary)}")
+
+    # Cross-agent parity matrix.
+    cx = rtk_codex_shims.status()
+    print()
+    print("  agent parity (read marker in Claude settings.json):")
+    print(f"    Claude:   {'enabled' if target.exists() and _count_markers(_load_settings(target) if target.exists() else {}) >= 1 else 'disabled'}")
+    print("    Cursor:   inherited (cursor-agent reads Claude settings.json hooks)")
+    print(
+        f"    Codex:    {'enabled' if cx['shims_present'] and cx['codex_block_present'] else 'disabled'}"
+        f" (shims={cx['shim_files_count']}, codex_config={'patched' if cx['codex_block_present'] else 'clean'})"
+    )
     return 0
 
 

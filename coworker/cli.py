@@ -194,6 +194,9 @@ def _strip_code_fences(text: str) -> str:
 
 
 def cmd_write(args) -> int:
+    if getattr(args, "append", False) and args.stdout:
+        print("[coworker] --append and --stdout are mutually exclusive.", file=sys.stderr)
+        return 2
     providers = load_providers()
     profile = load_profile(args.profile)
     prov_name, prov_cfg, model = resolve_provider_and_model(args, providers, profile)
@@ -251,8 +254,16 @@ def cmd_write(args) -> int:
     else:
         target = pathlib.Path(args.target)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(body)
-        print(f"[coworker] wrote {target} ({len(body)} bytes)")
+        if getattr(args, "append", False) and target.exists() and target.stat().st_size > 0:
+            existing = target.read_text()
+            separator = "" if existing.endswith("\n") else "\n"
+            with target.open("a") as fh:
+                fh.write(separator + body)
+            action = "appended"
+        else:
+            target.write_text(body)
+            action = "wrote"
+        print(f"[coworker] {action} {target} ({len(body)} bytes)")
 
     u = getattr(resp, "usage", None)
     if u:
@@ -328,6 +339,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_write.add_argument("--task-id", default=None, dest="task_id")
     p_write.add_argument("--no-log", action="store_true", dest="no_log")
     p_write.add_argument("--stdout", action="store_true")
+    p_write.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Append generated body to --target instead of truncate-writing. "
+            "Inserts a single blank line between existing tail and new body "
+            "if the existing file is non-empty and does not end with a "
+            "newline. Mutually exclusive with --stdout."
+        ),
+    )
     p_write.add_argument(
         "--allow-code",
         action="store_true",
