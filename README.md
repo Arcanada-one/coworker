@@ -130,7 +130,7 @@ to an existing file instead (mutually exclusive with `--stdout`). If
 `--target` doesn't exist yet, `--append` falls back to a normal write.
 
 ```bash
-coworker write --spec "Add Phase 7 release notes" \
+coworker write --spec "Add a new release-notes section" \
                --context CHANGELOG.md \
                --target CHANGELOG.md \
                --append
