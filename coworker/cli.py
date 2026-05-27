@@ -129,17 +129,18 @@ def _build_corpus(paths: list[str]) -> str:
 
 
 def cmd_ask(args) -> int:
+    allow_code = _resolve_allow_code(args)
+    paths = args.paths or []
+    _, gate_errors = _apply_gate(paths, allow_code)
+    if _emit_gate_decision(gate_errors, allow_code):
+        return GATE_BLOCKED_EXIT
+
     providers = load_providers()
     profile = load_profile(args.profile)
     prov_name, prov_cfg, model = resolve_provider_and_model(args, providers, profile)
     system_prompt = profile["system_prompt"]
     max_tokens = args.max_tokens or profile.get("default_max_tokens_ask", 16384)
 
-    allow_code = _resolve_allow_code(args)
-    paths = args.paths or []
-    _, gate_errors = _apply_gate(paths, allow_code)
-    if _emit_gate_decision(gate_errors, allow_code):
-        return GATE_BLOCKED_EXIT
     corpus = _build_corpus(paths)
     messages = build_messages(system_prompt, corpus, args.question, corpus_first=True)
 
@@ -197,17 +198,18 @@ def cmd_write(args) -> int:
     if getattr(args, "append", False) and args.stdout:
         print("[coworker] --append and --stdout are mutually exclusive.", file=sys.stderr)
         return 2
-    providers = load_providers()
-    profile = load_profile(args.profile)
-    prov_name, prov_cfg, model = resolve_provider_and_model(args, providers, profile)
-    system_prompt = profile["system_prompt"]
-    max_tokens = args.max_tokens or profile.get("default_max_tokens_write", 24000)
 
     allow_code = _resolve_allow_code(args)
     context_paths = args.context or []
     _, gate_errors = _apply_gate(context_paths, allow_code)
     if _emit_gate_decision(gate_errors, allow_code):
         return GATE_BLOCKED_EXIT
+
+    providers = load_providers()
+    profile = load_profile(args.profile)
+    prov_name, prov_cfg, model = resolve_provider_and_model(args, providers, profile)
+    system_prompt = profile["system_prompt"]
+    max_tokens = args.max_tokens or profile.get("default_max_tokens_write", 24000)
 
     refs = []
     for p in context_paths:
