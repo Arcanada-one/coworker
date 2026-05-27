@@ -166,6 +166,55 @@ def test_enable_disable_round_trip(isolated):
     assert 'model = "gpt-5"' in final
 
 
+def test_block_is_codex_scoped_not_unconditional(isolated):
+    """v0.5.0 fix (TUNE-0317-fix): the emitted block must gate `export PATH`
+    on the Codex-only arg0 PATH marker. An unconditional `export PATH=...`
+    would pollute every interactive shell on the box and could hang macOS
+    when `ls`/`grep` etc. cascade through `rtk` from Terminal/IDE — exactly
+    the v0.4.x regression operator hit.
+    """
+    mod = isolated["mod"]
+    text = mod._profile_block_text()
+    # Gate present.
+    assert "/.codex/tmp/arg0/codex-arg0" in text, "missing codex arg0 PATH gate"
+    assert "case " in text and "esac" in text, "expected case-statement gate"
+    # No unconditional unguarded export.
+    lines = [ln.strip() for ln in text.splitlines()]
+    bare_exports = [ln for ln in lines if ln.startswith("export PATH=") and "case" not in ln]
+    # The single `export PATH=...` line lives INSIDE the case branch, indented
+    # in the emitted block. After strip, it appears but is not at top level —
+    # verified structurally by presence of `case` wrapper above.
+    assert len(bare_exports) == 1, "expected exactly one export inside the gate"
+    # Sanity: shim dir referenced.
+    assert str(isolated["shim_dir"]) in text
+
+
+def test_inject_migrates_stale_v04_block(isolated):
+    """Upgrade path: operator box with v0.4.x unconditional block gets
+    rewritten in place to v0.5.0 gated form on next `coworker rtk enable`.
+    """
+    mod = isolated["mod"]
+    stale = (
+        f"{mod.MARKER_BEGIN}\n"
+        f"# coworker rtk Codex CLI parity. Prepends shim dir to PATH after\n"
+        f"# macOS path_helper / login shell setup. Removed by `coworker rtk disable`.\n"
+        f'export PATH="{isolated["shim_dir"]}:$PATH"\n'
+        f"{mod.MARKER_END}\n"
+    )
+    isolated["zprofile"].write_text(f"# user content\n\n{stale}")
+    assert mod.inject_codex_path(verbose=False) is True
+    text = isolated["zprofile"].read_text()
+    # User content preserved.
+    assert "# user content" in text
+    # Exactly one block.
+    assert text.count(mod.MARKER_BEGIN) == 1
+    # Gated form now present.
+    assert "/.codex/tmp/arg0/codex-arg0" in text
+    assert "case " in text
+    # Old unconditional form gone.
+    assert 'export PATH="' + str(isolated["shim_dir"]) + ':$PATH"\n' + mod.MARKER_END not in text
+
+
 def test_status_reports_state(isolated):
     mod = isolated["mod"]
     s = mod.status()

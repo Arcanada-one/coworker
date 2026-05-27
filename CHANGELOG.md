@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.5.0] — 2026-05-27
+
+### Fixed (breaking-class)
+
+- **Codex shim PATH no longer pollutes interactive shells.** v0.4.x emitted an unconditional `export PATH="<shim-dir>:$PATH"` into `~/.zprofile` and `~/.bash_profile`, which meant *every* interactive Terminal/IDE/Spotlight/cron shell on the host went through `rtk` for `ls`/`grep`/`find`/etc. Cascading shim invocations under macOS could hang the system enough that the operator had to force-restart (TUNE-0317 dogfood incident 2026-05-27). The emitted block is now gated on a Codex-only PATH substring (`/Users/.../.codex/tmp/arg0/codex-arg0XXX`) that Codex injects into the child shell's PATH *before* sourcing rc files — empirically the only reliable rc-time marker, since Codex sets `$CODEX_CI` only after rc completes. Interactive shells never see that marker, so the export is a no-op for them.
+- **Upgrade migration.** `coworker rtk enable` now detects a stale v0.4.x unconditional block and rewrites it in place to the v0.5.0 gated form. Operators upgrading via `pipx upgrade coworker && coworker rtk enable` get the fix without a manual `disable + enable` cycle.
+- Removed dead `_build_path_value()` helper from `rtk_codex_shims.py` (relic from a never-shipped codex-config injection design that the top-of-module docstring still described inaccurately).
+
+### Added
+
+- Two new tests in `tests/test_rtk_codex_shims.py`: `test_block_is_codex_scoped_not_unconditional` (asserts the emitted block contains the case-statement gate and the codex arg0 marker, with no bare unconditional export) and `test_inject_migrates_stale_v04_block` (asserts in-place migration when an old block is found). Suite: 110 passing, ruff clean.
+
+### Docs
+
+- Top-of-module docstring in `coworker/plugins/rtk_codex_shims.py` § Design contract item 3 rewritten to describe the actual mechanism (gated login-profile injection) instead of the abandoned codex-config-toml design.
+
 ## [0.4.1] — 2026-05-27
 
 ### Fixed

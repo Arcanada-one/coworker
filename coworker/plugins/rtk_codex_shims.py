@@ -16,9 +16,15 @@ Design contract:
    `command -v` while excluding the shim dir). The resolved absolute path
    is hard-coded into the shim body. Runtime PATH manipulation cannot
    cause shim-in-shim recursion or hijack the wrapper.
-3. PATH override is injected ONLY into `~/.codex/config.toml`
-   `[shell_environment_policy.set]`, never `~/.bashrc` / `~/.zshrc` /
-   global profile. Marker comments fence the block so disable is exact.
+3. PATH override is injected into login-shell profiles (`~/.zprofile`,
+   `~/.bash_profile`) inside a marker-fenced block, BUT gated on a
+   Codex-only PATH marker (`/.codex/tmp/arg0/codex-arg0XXX`) that Codex
+   injects into the child shell's PATH before sourcing rc files. Interactive
+   Terminal, IDE-embedded shells, Spotlight, cron — none see that marker,
+   so the export is a no-op for them. This is the v0.5.0 design (post
+   TUNE-0317 dogfood incident); v0.4.x emitted an unconditional `export
+   PATH=...` which polluted every shell on the box and could hang macOS
+   when interactive `ls`/`grep` etc. cascaded through `rtk`.
 4. Single source of truth for on/off is the existing `_managed_by:
    coworker-rtk` marker in `~/.claude/settings.json`. Shims read that
    marker at runtime — `coworker rtk disable` flips Claude+Codex+Cursor
@@ -231,44 +237,35 @@ def remove_shims(*, verbose: bool = True) -> tuple[int, list[str]]:
     return removed, touched
 
 
-def _build_path_value() -> str:
-    """Render the PATH value for codex config — shim dir prepended to a
-    minimal stable base. We don't inherit the operator's interactive PATH
-    here on purpose: that would import zsh plugins / brew shims / random
-    /usr/local entries into every codex subprocess.
-    """
-    base = (
-        "/opt/homebrew/bin:/opt/homebrew/sbin:"
-        "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-    )
-    return f"{SHIM_DIR}:{base}"
-
-
 def _profile_block_text() -> str:
-    """Marker-fenced shell profile block.
+    """Marker-fenced shell profile block — Codex-scope-only PATH injection.
 
-    Prepends the shim dir to PATH. macOS Codex spawns `/bin/zsh -lc`, which
-    sources `~/.zprofile` AFTER `/usr/libexec/path_helper`; this is the
-    only injection point on macOS that survives the path_helper reset.
-    Linux bash login shells source `~/.bash_profile` similarly.
+    The block gates the `export PATH=...` on a PATH-substring match for the
+    Codex-only `arg0` directory (`/Users/.../.codex/tmp/arg0/codex-arg0XXX`).
+    Codex injects this entry into the child shell's PATH BEFORE sourcing
+    `.zprofile`/`.bash_profile`, so the gate fires only for codex-launched
+    shells. Interactive Terminal sessions, IDE shells, Spotlight, cron — they
+    never see that marker, so the export is a no-op there.
 
-    Conditional behaviour:
-      - When `coworker rtk disable` is run, the Claude settings.json marker
-        disappears. The shims themselves probe that marker and become a
-        passthrough to the real binary — so this PATH prefix is a no-op
-        regardless of operator's RTK state.
-      - When RTK is enabled, the shims activate and wrap each command via
-        rtk. Same on/off contract as Claude and Cursor.
-
-    Operator's interactive shells get the shim dir on PATH but no behaviour
-    change (shims are conditional). This is the minimum-pollution path that
-    survives macOS login-shell PATH reset.
+    Why not `[ -n "$CODEX_CI" ]`: empirically (TUNE-0317-fix, 2026-05-27),
+    Codex sets CODEX_CI AFTER rc files run, so a CODEX_CI gate never fires
+    from rc context. The `arg0` PATH entry is set before rc and is therefore
+    the only reliable rc-time codex marker we have today.
     """
     return (
         f"{MARKER_BEGIN}\n"
-        f"# coworker rtk Codex CLI parity. Prepends shim dir to PATH after\n"
-        f"# macOS path_helper / login shell setup. Removed by `coworker rtk disable`.\n"
-        f'export PATH="{SHIM_DIR}:$PATH"\n'
+        f"# coworker rtk Codex CLI parity. Activates ONLY inside codex-launched\n"
+        f"# child shells (Codex injects /Users/.../.codex/tmp/arg0/codex-arg0XXX\n"
+        f"# into PATH before sourcing rc files). Interactive Terminal, IDE, cron,\n"
+        f"# Spotlight shells stay untouched — no recursion, no global PATH invasion.\n"
+        f"# Removed by `coworker rtk disable`.\n"
+        f'case ":$PATH:" in\n'
+        f'    *":/Users/"*"/.codex/tmp/arg0/codex-arg0"*)\n'
+        f'        if [ -d "{SHIM_DIR}" ]; then\n'
+        f'            export PATH="{SHIM_DIR}:$PATH"\n'
+        f"        fi\n"
+        f"        ;;\n"
+        f"esac\n"
         f"{MARKER_END}\n"
     )
 
@@ -294,16 +291,34 @@ def inject_codex_path(*, verbose: bool = True) -> bool:
     Idempotent: re-running enable does not duplicate the block.
     """
     touched = False
+    desired = _profile_block_text()
+    block_re = re.compile(
+        re.escape(MARKER_BEGIN) + r".*?" + re.escape(MARKER_END) + r"\n?",
+        re.DOTALL,
+    )
     for profile in _profile_targets():
         existing = profile.read_text() if profile.exists() else ""
-        if MARKER_BEGIN in existing and MARKER_END in existing:
-            if verbose:
-                print(f"  shell profile: shim block already present in {profile}")
+        match = block_re.search(existing)
+        if match:
+            # Block present. Same as desired → no-op. Different (e.g. v0.4.x
+            # unconditional `export PATH=...`) → in-place migrate to current
+            # gated form. This is the upgrade path that retroactively fixes
+            # operator boxes where a prior `coworker rtk enable` wrote the
+            # broken block.
+            if match.group(0).rstrip("\n") + "\n" == desired:
+                if verbose:
+                    print(f"  shell profile: shim block already current in {profile}")
+                touched = True
+                continue
+            new = block_re.sub(desired, existing, count=1)
+            profile.write_text(new)
             touched = True
+            if verbose:
+                print(f"  shell profile: shim block migrated in-place in {profile}")
             continue
         # Append at end so it runs AFTER any existing setup (e.g. path_helper
         # on macOS, which is sourced from /etc/zprofile before ~/.zprofile).
-        new = (existing.rstrip() + "\n" if existing else "") + "\n" + _profile_block_text()
+        new = (existing.rstrip() + "\n" if existing else "") + "\n" + desired
         profile.write_text(new)
         touched = True
         if verbose:
