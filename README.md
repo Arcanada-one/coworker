@@ -207,7 +207,17 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 
 ## Optional plugins
 
-- **`coworker rtk`** — opt-in integration with [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk). Default-off. Since v0.4.0, `coworker rtk enable` activates RTK across three agentic CLIs at once: Claude Code (PreToolUse hook), Cursor (inherits via shared settings.json), and Codex CLI (PATH-shim layer at `~/.local/share/rtk-shims/` with marker-fenced injection into `~/.zprofile` / `~/.bash_profile`). Empirical reduction varies sharply by command — see [`docs/rtk-plugin.md`](docs/rtk-plugin.md) § effectiveness table. Default-off; one-time Codex hook approval prompt on first session after enable.
+- **`coworker rtk`** — opt-in integration with [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk). Default-off. `coworker rtk enable` (since v0.6.0) installs a two-step `PreToolUse` chain: a vendored passthrough guard that short-circuits 13 default signal-bearing git/gh commands (`git push`, `git status`, `gh release`, …) so they execute against the real binary without RTK rewriting, then the standard RTK hook for everything else. CRUD surface: `coworker rtk passthrough add|list|remove`. See [`docs/rtk-plugin.md`](docs/rtk-plugin.md) § Signal / bulk passthrough for the full default allowlist and effectiveness table. One-time Codex hook approval prompt on first session after enable.
+
+### Runtime parity
+
+| Runtime       | Install command                | PreToolUse hook integration              | Bulk-read economy via RTK | Status        |
+|---------------|--------------------------------|------------------------------------------|---------------------------|---------------|
+| Claude Code   | `coworker rtk install` + `enable` | Native `PreToolUse` hook              | Full (with passthrough guard) | Primary |
+| Codex CLI     | same                           | PATH-shim layer (vendored)               | Full (with passthrough guard) | Parity  |
+| Cursor        | n/a                            | Not available — no `PreToolUse` surface  | Not applicable             | Limited |
+
+**Cursor disclaimer.** Cursor does not expose the `PreToolUse` hook surface that Claude Code and Codex CLI use to chain the passthrough guard and the RTK hook. As a result, `coworker rtk` has no insertion point on Cursor; bulk-read commands incur full token cost there. Cursor still runs Datarim commands and Coworker delegation works (the CLI binary is identical), but the RTK token-economy plugin is a no-op. See [Datarim release notes for v2.23.0](https://github.com/Arcanada-one/datarim/blob/main/CHANGELOG.md#2230--2026-05-28) for cross-runtime context.
 
 ## Documentation
 

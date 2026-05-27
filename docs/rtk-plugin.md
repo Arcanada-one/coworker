@@ -178,6 +178,84 @@ Prints:
 
 ---
 
+## Signal / bulk passthrough (v0.6.0+)
+
+The signal-command inflation problem described in § Known limitations
+below is resolved natively from v0.6.0 onward — `coworker rtk enable`
+installs a passthrough guard that runs **before** the RTK hook and
+short-circuits signal-bearing commands so they execute against the
+real binary without RTK rewriting.
+
+### Default allowlist (13 patterns)
+
+| Pattern         | Why it's a signal                                              |
+|-----------------|----------------------------------------------------------------|
+| `git push`      | Canonical marker (`To github.com:…`) confirms upload happened. |
+| `git pull`      | Confirms fast-forward / merge result; not a bulk listing.      |
+| `git fetch`     | Confirms refs updated; very short output.                      |
+| `git merge`     | Conflict markers are signal; reformat breaks parsing.          |
+| `git status`    | Clean-tree marker is signal; bloating it confuses agents.      |
+| `git remote`    | Remote URL list — short and parseable.                         |
+| `git rev-parse` | Single-SHA output; rewriting it = always-empty.                |
+| `git branch`    | Branch list with `*` current-marker; signal for decision-trees.|
+| `gh pr`         | PR state machine (open / merged / closed) is signal.           |
+| `gh issue`      | Issue state and number — short signal output.                  |
+| `gh release`    | Release URL output is signal.                                  |
+| `gh api`        | Raw API response; rewriting breaks JSON parsing downstream.    |
+| `gh run`        | CI run status is signal.                                       |
+
+Substring match against `tool_input.command` (case-sensitive). A
+single hit anywhere in the command string is enough: e.g.
+`cd /tmp/repo && git push origin main` matches `git push`.
+
+### CRUD workflow
+
+```bash
+coworker rtk passthrough list                  # print active patterns
+coworker rtk passthrough add 'docker compose'  # add custom signal pattern
+coworker rtk passthrough remove 'git tag'      # remove default if not wanted
+```
+
+Store: `~/.config/coworker/rtk-passthrough.json`. Idempotent — re-running
+`add` for an existing pattern is a no-op. `remove` against a non-present
+pattern is a no-op (exit 0, single stderr note). The file is rewritten
+atomically (temp + rename).
+
+### Fallback behaviour
+
+- **`jq` not installed.** The bash guard falls back to embedded defaults
+  (the 13 patterns above), warns once on stderr, and continues
+  unchanged. The user does not see a broken terminal.
+- **Store missing or malformed.** Same fallback. Operators can repair
+  with `coworker rtk passthrough list` (regenerates from defaults if
+  the file is unrecoverable) or by deleting the file (next CRUD call
+  reseeds).
+- **Env-var override.** `COWORKER_RTK_PASSTHROUGH_STORE=/path/to/json`
+  redirects the guard to an alternate store (useful for CI sandboxes,
+  multi-user hosts, or per-project allowlists).
+
+### Codex CLI parity
+
+The same passthrough allowlist applies to commands invoked through
+Codex CLI: the `git` and `gh` shims in `rtk_codex_shims.py` inject the
+passthrough snippet before delegating to the real binary. A `git push`
+issued through Codex sees the same passthrough treatment as one
+issued through Claude Code. Bulk-bearing shims (`ls`, `grep`, `find`)
+are untouched — no per-call overhead, since none of those carry
+signal markers anyway.
+
+### v1 → v2 settings.json migration
+
+`coworker rtk enable` detects a stale v1 block in `~/.claude/settings.json`
+(no passthrough guard, no idempotent marker) and rewrites it in place
+to v2: `_managed_by: coworker-rtk`, `_version: 2`, two-step
+`PreToolUse` chain (passthrough guard → RTK hook). Operators upgrading
+via `pipx upgrade coworker && coworker rtk enable` get the migration
+without a manual `disable + enable` cycle. `disable` preserves the
+passthrough store (CRUD state is durable across enable/disable cycles).
+
+---
+
 ## Known limitations
 
 - **Signal-command inflation on clean state.** RTK rewrites `git push`,

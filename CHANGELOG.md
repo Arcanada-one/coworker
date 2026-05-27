@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.6.0] — 2026-05-28
+
+### Added
+
+- **Canonical signal-vs-bulk passthrough inside `coworker rtk` plugin.** New `rtk_passthrough.py` module persists a JSON store at `~/.config/coworker/rtk-passthrough.json` with 13 default git/gh signal-command patterns (`git push`, `git pull`, `git fetch`, `git merge`, `git status`, `git log`, `gh pr`, `gh release`, and 5 others) plus an `add` / `list` / `remove` CRUD surface (`coworker rtk passthrough add|list|remove`). Idempotent seed on first invocation; fail-safe fallback when the store is missing, malformed, or wrong-shape (returns embedded defaults so the guard never breaks the user's terminal).
+- **`rtk_signal_guard.sh` — vendored bash guard shipped with the wheel.** PreToolUse-shaped: reads stdin JSON, substring-matches `tool_input.command` against the allowlist (jq when available, embedded defaults fallback). Match → `permissionDecision: allow` (the signal command runs against the real binary, no RTK rewriting). No match → forwards to `rtk hook claude` as before. `shellcheck -S warning` clean.
+- **Codex CLI parity for signal commands.** `rtk_codex_shims.py` git and gh shims now inject the passthrough snippet (mirrors the Claude `PreToolUse` guard). `ls` / `grep` / `find` shims untouched (no signal-bearing overhead). Multi-runtime guarantee: a `git push` issued through Codex sees the same passthrough treatment as one issued through Claude Code.
+- **`coworker rtk` settings.json v1 → v2 migration.** `cmd_enable` detects a v1 block (no passthrough guard) and rewrites it in place to v2 (idempotent marker `_managed_by: coworker-rtk`, `_version: 2`). Operators upgrading via `pipx upgrade coworker && coworker rtk enable` get the fix without manual `disable + enable`.
+- **`coworker rtk status`** reports `passthrough patterns: N (store: <path>)` alongside the existing binary path / version / hook-on/off display.
+- **Test coverage.** +19 passthrough pytest cases (CRUD / seed / fallback / env-var override), +5 Codex-shim parity pytest cases (snippet presence, real-binary on signal, rtk-mock on bulk), +4 `test_rtk_plugin.py` cases (defaults seed, status counter, disable preserves store, v1→v2 block replacement), autouse isolation fixture. Full suite: 138 passed, 1 skipped, ruff clean.
+
+### Changed
+
+- **`pyproject.toml` version 0.5.0 → 0.6.0** (minor — additive signal-vs-bulk passthrough feature; no breaking change to existing v0.5.0 invocations).
+- **`pyproject.toml` package-data** now includes `*.sh` so the vendored `rtk_signal_guard.sh` ships inside the wheel and resolves correctly under `importlib.resources`.
+- **`COWORKER_RTK_VERSION`** internal constant bumped from `1` to `2` to track the settings.json block schema.
+
+### Docs
+
+- `docs/rtk-plugin.md` § Signal/bulk passthrough — new section: default 13-pattern table, CRUD workflow, fallback behaviour (missing `jq`, malformed store), env-var override, v1→v2 migration semantics.
+- README `## Optional plugins` — call out the passthrough surface as the recommended way to use RTK across Claude Code, Codex CLI, and the documented Cursor limitation (no native PreToolUse hook integration, full bulk-read cost — see Datarim release notes for v2.23.0 for cross-runtime context).
+
 ## [0.5.0] — 2026-05-27
 
 ### Fixed (breaking-class)
