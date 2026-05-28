@@ -432,3 +432,31 @@ def test_status_telemetry_unavailable_when_rtk_missing(tmp_path, capsys):
     assert "telemetry:" in out.lower()
     assert "unavailable" in out.lower()
     assert "rtk missing" in out.lower()
+
+
+# ----- Test: Cursor parity row reports honest no-hook status -----
+
+
+def test_status_cursor_row_reports_not_applicable(tmp_path, capsys):
+    """`coworker rtk status` must NOT claim Cursor inherits Claude hooks.
+
+    cursor-agent has no PreToolUse hook surface (clean-env probe: which ls =
+    /bin/ls, ls -la raw bytes, no RTK reduction). The status copy must say
+    'not-applicable', never the old 'inherited (... reads Claude settings.json
+    hooks)' framing.
+    """
+    settings_path = tmp_path / "settings.json"
+    _write_settings(settings_path, _baseline_settings())
+
+    with patch.object(rtk, "_rtk_binary_path", return_value="/usr/local/bin/rtk"), \
+         patch.object(rtk, "_rtk_version", return_value="0.40.0"):
+        rtk.cmd_enable(config_path=settings_path)
+        rc = rtk.cmd_status(config_path=settings_path)
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Cursor:" in out
+    assert "not-applicable" in out
+    assert "no native hook surface" in out
+    assert "inherited" not in out
+    assert "reads Claude settings.json hooks" not in out

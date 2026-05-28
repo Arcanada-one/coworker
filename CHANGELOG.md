@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.6.1] — 2026-05-28
+
+### Fixed
+
+- **`coworker rtk status` Cursor parity row corrected.** The status output hardcoded `Cursor: inherited (cursor-agent reads Claude settings.json hooks)`, which is false — `cursor-agent` has no `PreToolUse` hook surface (clean-env probe: `which ls = /bin/ls`, `ls -la` returns raw bytes, no RTK reduction; it uses its own `~/.cursor/cli-config.json` + `composer-2.5-fast`). Earlier «513-byte» parity measurements were contaminated env (cursor-agent spawned inside a Claude session, inheriting `CLAUDE_CODE_SESSION_ID` — those were the model paraphrasing stdout, not RTK rewriting it). The row now reads `Cursor: not-applicable (no native hook surface in cursor-agent)`. The RTK token-economy plugin is a no-op under Cursor; operators must budget full bulk-read token cost there. +1 pytest case asserts the honest copy and guards against regression.
+- **`__version__` constant resync.** `coworker/__init__.py` `__version__` was stale at `0.2.0` (never bumped through the 0.3.0 → 0.6.0 line), so `coworker stats` misreported the running version. Now sourced consistently at `0.6.1`.
+
 ## [0.6.0] — 2026-05-28
 
 ### Added

@@ -423,7 +423,7 @@ def cmd_status(
     print()
     print("  agent parity (read marker in Claude settings.json):")
     print(f"    Claude:   {'enabled' if target.exists() and _count_markers(_load_settings(target) if target.exists() else {}) >= 1 else 'disabled'}")
-    print("    Cursor:   inherited (cursor-agent reads Claude settings.json hooks)")
+    print("    Cursor:   not-applicable (no native hook surface in cursor-agent)")
     print(
         f"    Codex:    {'enabled' if cx['shims_present'] and cx['codex_block_present'] else 'disabled'}"
         f" (shims={cx['shim_files_count']}, codex_config={'patched' if cx['codex_block_present'] else 'clean'})"
