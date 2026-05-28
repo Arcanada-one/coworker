@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.6.2] — 2026-05-28
+
+### Added
+
+- **Cursor CLI RTK parity via the native `beforeShellExecution` hook.** New `rtk_cursor_hook.py` installs a `beforeShellExecution` entry in `~/.cursor/hooks.json` that runs `rtk hook cursor`. cursor-agent pipes each shell command to it as JSON and honours the rewritten `rtk <cmd>` form, so bulk-read output is compacted exactly as on Claude Code and Codex CLI. `coworker rtk enable`/`disable` manage the entry idempotently (absolute rtk path resolved at enable time, operator's other hooks preserved, malformed `hooks.json` treated as empty). All three runtimes — Claude Code, Codex CLI, Cursor — are now at RTK parity. +10 pytest cases.
+
+### Changed
+
+- **`coworker rtk status` Cursor row now reports real parity.** Was `Cursor: not-applicable (no native hook surface in cursor-agent)` (v0.6.1); now `Cursor: enabled (hooks.json beforeShellExecution -> rtk hook cursor)`. This reverses the v0.6.1 «not-applicable» verdict, which assumed cursor-agent had no usable hook surface. It does: cursor-agent exposes a native `beforeShellExecution` hook (distinct from Claude's `PreToolUse`), and rtk's `rtk hook cursor` processor targets it. Verified live, not assumed — inside cursor-agent `ls -la /tmp` returns the rtk-compacted form (`/tmp -> private/tmp  11B`) rather than raw `ls` bytes. A shell-rc PATH-shim was evaluated and rejected: cursor-agent runs a login shell but rebuilds PATH after rc, so an injected shim never reaches command execution; the native hook is the only reliable — and the most scoped — surface.
+- **`pyproject.toml` + `coworker/__init__.py` version 0.6.1 → 0.6.2.**
+
+### Fixed
+
+- **Docs corrected.** `README.md` runtime-parity matrix and `docs/rtk-plugin.md` cross-agent table previously described Cursor as «not available / limited» or «inherited via the shared `~/.claude/settings.json` channel». Both now document the native `beforeShellExecution` hook mechanism.
+
 ## [0.6.1] — 2026-05-28
 
 ### Fixed

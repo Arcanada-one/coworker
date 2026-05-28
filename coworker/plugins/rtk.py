@@ -28,7 +28,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from . import rtk_codex_shims, rtk_passthrough
+from . import rtk_codex_shims, rtk_cursor_hook, rtk_passthrough
 
 # Marker contract — keep these as the public stable surface; tests pin both.
 COWORKER_RTK_MARKER = "_managed_by"
@@ -312,6 +312,10 @@ def cmd_enable(
     print()
     rtk_codex_shims.enable_codex_parity()
 
+    # Cursor CLI parity layer (native beforeShellExecution hook in ~/.cursor/hooks.json).
+    print()
+    rtk_cursor_hook.enable_cursor_parity()
+
     print("\nRun `coworker rtk status` to verify.")
     return 0
 
@@ -353,6 +357,10 @@ def cmd_disable(
     # Tear down Codex parity layer.
     print()
     rtk_codex_shims.disable_codex_parity()
+
+    # Tear down Cursor parity layer.
+    print()
+    rtk_cursor_hook.disable_cursor_parity()
     return 0
 
 
@@ -420,10 +428,14 @@ def cmd_status(
 
     # Cross-agent parity matrix.
     cx = rtk_codex_shims.status()
+    cur = rtk_cursor_hook.status()
     print()
     print("  agent parity (read marker in Claude settings.json):")
     print(f"    Claude:   {'enabled' if target.exists() and _count_markers(_load_settings(target) if target.exists() else {}) >= 1 else 'disabled'}")
-    print("    Cursor:   not-applicable (no native hook surface in cursor-agent)")
+    print(
+        f"    Cursor:   {'enabled' if cur['hook_present'] else 'disabled'}"
+        f" (hooks.json {cur['event']} -> rtk hook cursor)"
+    )
     print(
         f"    Codex:    {'enabled' if cx['shims_present'] and cx['codex_block_present'] else 'disabled'}"
         f" (shims={cx['shim_files_count']}, codex_config={'patched' if cx['codex_block_present'] else 'clean'})"

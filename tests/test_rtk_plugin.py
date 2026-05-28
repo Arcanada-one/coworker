@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import pytest
 
-from coworker.plugins import rtk, rtk_codex_shims
+from coworker.plugins import rtk, rtk_codex_shims, rtk_cursor_hook
 
 # Marker contract — single source of truth in coworker/plugins/rtk.py.
 # Tests reference the constants so a rename surfaces here immediately.
@@ -51,6 +51,10 @@ def _isolate_runtime_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(rtk_codex_shims, "SHIM_DIR", tmp_path / "shims")
     monkeypatch.setattr(rtk_codex_shims, "ZPROFILE", tmp_path / ".zprofile")
     monkeypatch.setattr(rtk_codex_shims, "BASH_PROFILE", tmp_path / ".bash_profile")
+
+    # Cursor parity layer — pin hooks.json at a tmp file so tests never
+    # mutate the operator's real ~/.cursor/hooks.json.
+    monkeypatch.setattr(rtk_cursor_hook, "CURSOR_HOOKS", tmp_path / ".cursor" / "hooks.json")
     yield
 
 
@@ -434,16 +438,17 @@ def test_status_telemetry_unavailable_when_rtk_missing(tmp_path, capsys):
     assert "rtk missing" in out.lower()
 
 
-# ----- Test: Cursor parity row reports honest no-hook status -----
+# ----- Test: Cursor parity row reports honest enabled/disabled state -----
 
 
-def test_status_cursor_row_reports_not_applicable(tmp_path, capsys):
-    """`coworker rtk status` must NOT claim Cursor inherits Claude hooks.
+def test_status_cursor_row_reports_parity_state(tmp_path, capsys):
+    """`coworker rtk status` must report Cursor's real parity state.
 
-    cursor-agent has no PreToolUse hook surface (clean-env probe: which ls =
-    /bin/ls, ls -la raw bytes, no RTK reduction). The status copy must say
-    'not-applicable', never the old 'inherited (... reads Claude settings.json
-    hooks)' framing.
+    cursor-agent has no Claude-style PreToolUse hook, but it exposes a native
+    `beforeShellExecution` hook in ~/.cursor/hooks.json that runs
+    `rtk hook cursor`. After `coworker rtk enable` the row must report the
+    hook as enabled and cite hooks.json — never the stale 'not-applicable'
+    or 'inherited (... reads Claude settings.json hooks)' framing.
     """
     settings_path = tmp_path / "settings.json"
     _write_settings(settings_path, _baseline_settings())
@@ -455,8 +460,11 @@ def test_status_cursor_row_reports_not_applicable(tmp_path, capsys):
 
     out = capsys.readouterr().out
     assert rc == 0
-    assert "Cursor:" in out
-    assert "not-applicable" in out
-    assert "no native hook surface" in out
+    cursor_line = next(ln for ln in out.splitlines() if "Cursor:" in ln)
+    assert "enabled" in cursor_line
+    assert "hooks.json" in cursor_line
+    assert "beforeShellExecution" in cursor_line
+    # Stale claims must be gone.
+    assert "not-applicable" not in out
     assert "inherited" not in out
     assert "reads Claude settings.json hooks" not in out

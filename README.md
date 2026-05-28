@@ -211,13 +211,13 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 
 ### Runtime parity
 
-| Runtime       | Install command                | PreToolUse hook integration              | Bulk-read economy via RTK | Status        |
+| Runtime       | Install command                | Hook integration                         | Bulk-read economy via RTK | Status        |
 |---------------|--------------------------------|------------------------------------------|---------------------------|---------------|
 | Claude Code   | `coworker rtk install` + `enable` | Native `PreToolUse` hook              | Full (with passthrough guard) | Primary |
 | Codex CLI     | same                           | PATH-shim layer (vendored)               | Full (with passthrough guard) | Parity  |
-| Cursor        | n/a                            | Not available — no `PreToolUse` surface  | Not applicable             | Limited |
+| Cursor        | `coworker rtk install` + `enable` | Native `beforeShellExecution` hook (`rtk hook cursor`) | Full (with passthrough guard) | Parity |
 
-**Cursor disclaimer.** Cursor does not expose the `PreToolUse` hook surface that Claude Code and Codex CLI use to chain the passthrough guard and the RTK hook. As a result, `coworker rtk` has no insertion point on Cursor; bulk-read commands incur full token cost there. Cursor still runs Datarim commands and Coworker delegation works (the CLI binary is identical), but the RTK token-economy plugin is a no-op. See [Datarim release notes for v2.23.0](https://github.com/Arcanada-one/datarim/blob/main/CHANGELOG.md#2230--2026-05-28) for cross-runtime context.
+**Cursor.** Cursor Agent has no Claude-style `PreToolUse` hook, but it exposes a native `beforeShellExecution` hook. `coworker rtk enable` installs a `beforeShellExecution` entry in `~/.cursor/hooks.json` that runs `rtk hook cursor`, which rewrites bulk commands to `rtk <cmd>` (compacted output) and passes signal commands through — the same token economy as Claude Code and Codex CLI. Verified live: inside cursor-agent, `ls -la /tmp` returns the rtk-compacted form rather than raw `ls` bytes. No shell-rc mutation is involved — cursor-agent builds its own login-shell PATH, so a PATH-shim would not survive to command execution; the native hook is the correct, scoped surface.
 
 ## Documentation
 

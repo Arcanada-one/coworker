@@ -1,6 +1,6 @@
 # RTK plugin (opt-in)
 
-> **Status:** ships in coworker v0.3.0 (Claude/Cursor hook) and v0.4.0 (Codex CLI parity via PATH-shim layer) · default-off · no behaviour change for existing installs.
+> **Status:** Claude Code (`PreToolUse` hook) + Codex CLI (PATH-shim, v0.4.0) + Cursor (native `beforeShellExecution` hook, v0.6.2) · default-off · no behaviour change for existing installs.
 
 [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk) is a CLI proxy
 that strips noise from shell-tool output before it reaches your LLM's
@@ -33,13 +33,13 @@ use marker fences (`# >>> coworker-rtk-codex-shims (managed) >>>` …
 
 ## Cross-agent parity (Claude / Cursor / Codex)
 
-Since v0.4.0, `coworker rtk enable` activates RTK for all three major
+Since v0.6.2, `coworker rtk enable` activates RTK for all three major
 agentic CLIs:
 
 | Agent | Mechanism | Verified |
 |---|---|---|
 | Claude Code | `PreToolUse` hook (`rtk hook claude`) in `~/.claude/settings.json` | empirical, byte-count probe on `ls -la <large-dir>` |
-| Cursor | Inherited via the shared `~/.claude/settings.json` channel | empirical, same probe |
+| Cursor | Native `beforeShellExecution` hook (`rtk hook cursor`) in `~/.cursor/hooks.json` | empirical, live smoke: `ls -la /tmp` returns rtk-compacted output |
 | Codex CLI | PATH-shim dispatcher at `~/.local/share/rtk-shims/` (12 wrapped commands), injected into login-shell `PATH` via marker-fenced block in `~/.zprofile` + `~/.bash_profile`. Codex's `bash -lc` wrapper picks up the shim ahead of the real binary. | empirical, `codex exec` byte-count probe (requires one-time hook approval — see below) |
 
 ### Codex CLI: one-time hook approval
