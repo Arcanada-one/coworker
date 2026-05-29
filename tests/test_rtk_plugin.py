@@ -401,6 +401,93 @@ def test_v1_to_v2_block_replacement_on_enable(tmp_path):
     assert rtk_hook_cmds[0].endswith("rtk-signal-guard.sh")
 
 
+def test_unmarked_legacy_guard_counts_as_enabled():
+    """A guard registered by hand (no `_managed_by` marker) is still RTK.
+
+    `_count_markers` reports 0 for it, but `_count_guard_hooks` must report 1 so
+    `status` shows Claude enabled instead of a false `disabled`.
+    """
+    data = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"type": "command", "command": "/home/u/.local/bin/rtk-signal-guard.sh"}
+                    ],
+                }
+            ]
+        }
+    }
+    assert rtk._count_markers(data) == 0
+    assert rtk._count_guard_hooks(data) == 1
+
+
+def test_unmarked_legacy_guard_normalised_on_enable_not_duplicated(tmp_path):
+    """Enable over an unmarked legacy guard rewrites it to a single marker
+    block — it must not stack a second Bash guard entry."""
+    settings_path = tmp_path / "settings.json"
+    legacy = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"type": "command", "command": "/old/path/rtk-signal-guard.sh"}
+                    ],
+                }
+            ]
+        }
+    }
+    _write_settings(settings_path, legacy)
+
+    with patch.object(rtk, "_rtk_binary_path", return_value="/usr/local/bin/rtk"):
+        rtk.cmd_enable(config_path=settings_path)
+
+    data = json.loads(settings_path.read_text())
+    guard_cmds = [
+        h.get("command")
+        for entry in data["hooks"]["PreToolUse"]
+        for h in entry.get("hooks", [])
+        if rtk._is_guard_command(h.get("command"))
+    ]
+    assert len(guard_cmds) == 1, "legacy unmarked guard must be replaced, not duplicated"
+    assert guard_cmds[0].endswith("rtk-signal-guard.sh")
+    # Normalised block now carries the marker.
+    assert _count_rtk_markers(data) == 1
+
+
+def test_operator_non_guard_bash_hook_preserved_on_enable(tmp_path):
+    """Enable must never drop an operator's own Bash PreToolUse hook that is
+    not a guard (e.g. coworker-hook-guard)."""
+    settings_path = tmp_path / "settings.json"
+    operator = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Read|Write|Bash",
+                    "hooks": [
+                        {"type": "command", "command": "~/.local/bin/coworker-hook-guard", "timeout": 5}
+                    ],
+                }
+            ]
+        }
+    }
+    _write_settings(settings_path, operator)
+
+    with patch.object(rtk, "_rtk_binary_path", return_value="/usr/local/bin/rtk"):
+        rtk.cmd_enable(config_path=settings_path)
+
+    data = json.loads(settings_path.read_text())
+    all_cmds = [
+        h.get("command")
+        for entry in data["hooks"]["PreToolUse"]
+        for h in entry.get("hooks", [])
+    ]
+    assert any("coworker-hook-guard" in c for c in all_cmds), "operator hook must survive"
+    assert any(c.endswith("rtk-signal-guard.sh") for c in all_cmds), "guard must be added"
+
+
 # --- TUNE-0279 Phase A — UX-pass tests --------------------------------------
 
 

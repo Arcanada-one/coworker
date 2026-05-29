@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [0.6.3] — 2026-05-30
+
+### Fixed
+
+- **`coworker rtk status` no longer reports a false `Claude: disabled`.** When the Claude signal guard (`rtk-signal-guard.sh`) was registered in `~/.claude/settings.json` without the `_managed_by: coworker-rtk` marker — e.g. a hand-edited install or a pre-marker plugin version — `status` counted only marker-tagged blocks and reported Claude as disabled plus a spurious "passthrough patterns configured but guard not installed" warning, even though RTK was functionally active. Status now recognises a guard by command identity (`_count_guard_hooks` / `_is_guard_command`), reports Claude truthfully, and emits a one-time NOTE prompting `coworker rtk enable` to add the marker.
+- **`coworker rtk enable` normalises a legacy/unmarked guard instead of stacking a duplicate.** Enable previously filtered only marker-tagged blocks, so re-enabling over an unmarked guard appended a second Bash hook entry. It now drops any guard-equivalent block (unmarked, v1 bare `rtk hook claude`, or current marker block) before writing the single canonical v2 block; operator's non-guard hooks (e.g. `coworker-hook-guard`) are preserved. +3 pytest cases.
+
 ## [0.6.2] — 2026-05-28
 
 ### Added

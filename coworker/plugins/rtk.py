@@ -175,6 +175,71 @@ def _count_markers(data: dict) -> int:
     return count
 
 
+def _is_guard_command(cmd: str | None) -> bool:
+    """True if a hook command string points at the vendored signal guard.
+
+    Covers both the marker-tagged install and legacy guards registered without
+    the ``_managed_by`` marker (manual edits or pre-marker plugin versions).
+    Bare ``rtk hook claude`` (the even-older v1 command) is also recognised so
+    every guard-equivalent install is normalised on the next enable.
+    """
+    if not cmd:
+        return False
+    return RTK_GUARD_FILENAME in cmd or cmd.strip() == "rtk hook claude"
+
+
+def _count_guard_hooks(data: dict) -> int:
+    """Count every guard-equivalent hook entry, marked or not.
+
+    A guard installed by hand (or by a pre-marker plugin version) lacks the
+    ``_managed_by`` marker, so ``_count_markers`` reports 0 even though RTK is
+    functionally active. This counts by command identity instead, which is what
+    ``status`` needs to report Claude state truthfully and what ``enable`` needs
+    to avoid stacking a duplicate guard block.
+    """
+    pre = data.get("hooks", {}).get("PreToolUse", [])
+    count = 0
+    for entry in pre:
+        for h in entry.get("hooks", []) or []:
+            if h.get(COWORKER_RTK_MARKER) == COWORKER_RTK_MARKER_VALUE or _is_guard_command(
+                h.get("command")
+            ):
+                count += 1
+    return count
+
+
+def _filter_out_guard(data: dict) -> dict:
+    """Like `_filter_out_marker` but also drops unmarked guard-equivalent hooks.
+
+    Normalises a legacy (unmarked) or v1 guard install so `enable` can re-append
+    a single canonical marker-tagged v2 block instead of duplicating it.
+    """
+    if "hooks" not in data:
+        return data
+    pre = data.get("hooks", {}).get("PreToolUse", [])
+    new_pre = []
+    for entry in pre:
+        kept_hooks = [
+            h
+            for h in entry.get("hooks", []) or []
+            if h.get(COWORKER_RTK_MARKER) != COWORKER_RTK_MARKER_VALUE
+            and not _is_guard_command(h.get("command"))
+        ]
+        if kept_hooks:
+            new_entry = dict(entry)
+            new_entry["hooks"] = kept_hooks
+            new_pre.append(new_entry)
+        elif not entry.get("hooks"):
+            new_pre.append(entry)
+    if new_pre:
+        data["hooks"]["PreToolUse"] = new_pre
+    else:
+        data["hooks"].pop("PreToolUse", None)
+        if not data["hooks"]:
+            data.pop("hooks", None)
+    return data
+
+
 def _filter_out_marker(data: dict) -> dict:
     """Return a copy of `data` with every marker-tagged hook entry removed.
 
@@ -298,11 +363,12 @@ def cmd_enable(
         print(f"[coworker rtk] ERROR: {e}", file=sys.stderr)
         return 1
 
-    # v1 block (bare `rtk hook claude` command) must be replaced by the
-    # v2 guard-wrapper block. Filter out any prior marker-tagged entries
-    # before appending the new one.
-    if _count_markers(data) >= 1:
-        data = _filter_out_marker(data)
+    # Any prior guard-equivalent block (v1 bare command, legacy unmarked
+    # install, or current marker-tagged block) must be replaced by the v2
+    # guard-wrapper block — not appended alongside, which would stack a
+    # duplicate Bash hook.
+    if _count_guard_hooks(data) >= 1:
+        data = _filter_out_guard(data)
 
     data.setdefault("hooks", {}).setdefault("PreToolUse", []).append(_rtk_hook_block(guard_path))
     _atomic_write_json(target, data)
@@ -389,11 +455,19 @@ def cmd_status(
         try:
             data = _load_settings(target)
             marker_count = _count_markers(data)
+            guard_count = _count_guard_hooks(data)
             print(f"  settings:    {target}")
-            print(f"  RTK hook:    {'enabled' if marker_count >= 1 else 'disabled'}")
-            if marker_count > 1:
+            print(f"  RTK hook:    {'enabled' if guard_count >= 1 else 'disabled'}")
+            if guard_count >= 1 and marker_count == 0:
                 print(
-                    f"  WARNING: {marker_count} RTK marker blocks found — run "
+                    "  NOTE: RTK guard is installed without the coworker marker "
+                    "(legacy or hand-edited). Run `coworker rtk enable` to normalise "
+                    "it to the current managed block.",
+                    file=sys.stderr,
+                )
+            if guard_count > 1:
+                print(
+                    f"  WARNING: {guard_count} RTK guard blocks found — run "
                     "`coworker rtk disable && coworker rtk enable` to normalise.",
                     file=sys.stderr,
                 )
@@ -417,7 +491,7 @@ def cmd_status(
     if pass_count > 0 and target.exists():
         try:
             _data_now = _load_settings(target)
-            if _count_markers(_data_now) == 0:
+            if _count_guard_hooks(_data_now) == 0:
                 print(
                     "  WARNING: passthrough patterns configured but guard not installed; "
                     "run `coworker rtk enable`.",
@@ -430,8 +504,8 @@ def cmd_status(
     cx = rtk_codex_shims.status()
     cur = rtk_cursor_hook.status()
     print()
-    print("  agent parity (read marker in Claude settings.json):")
-    print(f"    Claude:   {'enabled' if target.exists() and _count_markers(_load_settings(target) if target.exists() else {}) >= 1 else 'disabled'}")
+    print("  agent parity (read guard hook in Claude settings.json):")
+    print(f"    Claude:   {'enabled' if target.exists() and _count_guard_hooks(_load_settings(target) if target.exists() else {}) >= 1 else 'disabled'}")
     print(
         f"    Cursor:   {'enabled' if cur['hook_present'] else 'disabled'}"
         f" (hooks.json {cur['event']} -> rtk hook cursor)"
