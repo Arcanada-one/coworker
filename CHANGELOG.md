@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+### Changed
+
+- **PyPI distribution renamed to `coworker-cli`.** The PyPI name `coworker` is owned by an unrelated, actively-maintained project, so the install command is now `pip install coworker-cli`. The CLI command (`coworker`), the importable package (`import coworker`), and the repository (`Arcanada-one/coworker`) are unchanged — only the distribution name on PyPI differs. The README install instructions, the release-verification recipe, and the release workflow (wheel/sdist globs, version-assert, SBOM name, trusted-publisher project name) were updated accordingly; build artefacts are named with the PEP 503/427 underscore form `coworker_cli-<version>`.
+
 ### Added
 
 - **Automated signed release pipeline (`.github/workflows/release.yml`).** A `v*` tag push now builds the wheel + sdist, asserts the built version matches the tag (fail-closed), generates a CycloneDX SBOM, signs the wheel, sdist, and SBOM with cosign keyless OIDC, attests SLSA L2 build provenance, publishes to **PyPI via Trusted Publishing** (OIDC — no API token stored anywhere), and creates a GitHub Release with every artefact plus its `.cosign.bundle` and `.sha256` sidecar. `pip install coworker` now resolves from PyPI. Consumer verify recipe: [`docs/release-verification.md`](docs/release-verification.md). All third-party actions are SHA-pinned and cosign/syft binaries are sha256-verified before use. A `pytest` guard (`tests/test_release_workflow.py`) locks the workflow's structural invariants. First publish requires a one-time PyPI pending-publisher registration — see the verify doc § Maintainer setup.

@@ -90,7 +90,7 @@ def test_version_assert_normalizes_before_comparing():
     # The version-assert must NOT compare the raw tag version against the built
     # wheel version with a literal string equality. `python -m build` writes the
     # PEP 440-normalized version into the filename (tag v0.7.0-rc1 -> wheel
-    # coworker-0.7.0rc1-...whl), so a raw `!=` fires on every valid prerelease
+    # coworker_cli-0.7.0rc1-...whl), so a raw `!=` fires on every valid prerelease
     # tag. The assert must canonicalize both sides (packaging.canonicalize_version)
     # before comparing.
     blob = _step_blob()
