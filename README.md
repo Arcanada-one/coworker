@@ -53,11 +53,14 @@ coworker ask --provider deepseek \
 Requires Python 3.10+. No system packages.
 
 ```bash
-pip install coworker
+pip install coworker-cli
 ```
 
-Or pin a specific release: `pip install coworker==0.6.3`. To install straight
+Or pin a specific release: `pip install coworker-cli==0.6.3`. To install straight
 from source instead: `pip install git+https://github.com/Arcanada-one/coworker`.
+
+The distribution is named `coworker-cli` on PyPI; the installed command stays
+`coworker`.
 
 Releases are signed with cosign and carry SLSA L2 build provenance — see
 [`docs/release-verification.md`](docs/release-verification.md) to verify a

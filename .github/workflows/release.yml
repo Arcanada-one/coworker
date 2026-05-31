@@ -18,7 +18,7 @@ name: release
 #   - actions/*           -> SHA-pinned to commit (Datarim Security Mandate S4).
 #
 # PyPI auth: Trusted Publishing. A one-time "pending publisher" must be
-# registered on pypi.org (project=coworker, owner=Arcanada-one,
+# registered on pypi.org (project=coworker-cli, owner=Arcanada-one,
 # workflow=release.yml, environment=pypi) before the first tag — see
 # docs/release-verification.md § Maintainer setup.
 
@@ -110,12 +110,14 @@ jobs:
       - name: Assert built version matches tag (fail-closed)
         run: |
           set -euo pipefail
-          wheel="$(ls dist/coworker-*.whl)"
-          sdist="$(ls dist/coworker-*.tar.gz)"
-          # Wheel filename is coworker-<version>-py3-none-any.whl;
-          # sdist is coworker-<version>.tar.gz.
-          wheel_ver="$(basename "$wheel" | sed -E 's/^coworker-([^-]+)-.*\.whl$/\1/')"
-          sdist_ver="$(basename "$sdist" | sed -E 's/^coworker-(.+)\.tar\.gz$/\1/')"
+          wheel="$(ls dist/coworker_cli-*.whl)"
+          sdist="$(ls dist/coworker_cli-*.tar.gz)"
+          # Distribution name `coworker-cli` normalizes (PEP 503/427) to the
+          # underscore form in build-artifact filenames:
+          # wheel  coworker_cli-<version>-py3-none-any.whl;
+          # sdist  coworker_cli-<version>.tar.gz.
+          wheel_ver="$(basename "$wheel" | sed -E 's/^coworker_cli-([^-]+)-.*\.whl$/\1/')"
+          sdist_ver="$(basename "$sdist" | sed -E 's/^coworker_cli-(.+)\.tar\.gz$/\1/')"
           # Compare on PEP 440 canonical forms, not raw strings. `python -m build`
           # normalizes the version in the filename (tag v0.7.0-rc1 -> wheel
           # 0.7.0rc1, and canonical 0.7rc1), so a literal compare of the tag
@@ -147,7 +149,7 @@ jobs:
       - name: Generate SBOM (CycloneDX)
         run: |
           set -euo pipefail
-          sbom="coworker-${TAG}-sbom.cdx.json"
+          sbom="coworker-cli-${TAG}-sbom.cdx.json"
           syft scan dir:. -o "cyclonedx-json=${sbom}"
           # Sanity: bomFormat must be CycloneDX, components array non-empty.
           jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' "$sbom" > /dev/null
@@ -181,7 +183,7 @@ jobs:
             Verify this release before installing — see
             [docs/release-verification.md](https://github.com/Arcanada-one/coworker/blob/${{ env.TAG }}/docs/release-verification.md).
 
-            Install: `pip install coworker==${{ env.VERSION }}`
+            Install: `pip install coworker-cli==${{ env.VERSION }}`
           files: |
             ${{ env.WHEEL }}
             ${{ env.WHEEL }}.cosign.bundle

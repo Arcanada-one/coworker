@@ -18,9 +18,9 @@ gh release download "$TAG" --repo Arcanada-one/coworker
 
 # 2. Derive the distribution filenames.
 VERSION="${TAG#v}"
-WHEEL="coworker-${VERSION}-py3-none-any.whl"
-SDIST="coworker-${VERSION}.tar.gz"
-SBOM="coworker-${TAG}-sbom.cdx.json"
+WHEEL="coworker_cli-${VERSION}-py3-none-any.whl"
+SDIST="coworker_cli-${VERSION}.tar.gz"
+SBOM="coworker-cli-${TAG}-sbom.cdx.json"
 
 # 3. Verify checksums.
 sha256sum -c "${WHEEL}.sha256" "${SDIST}.sha256" "${SBOM}.sha256"
@@ -60,7 +60,7 @@ All five steps must exit `0` for a trusted release.
 After verification, install the published distribution:
 
 ```bash
-pip install coworker==0.7.0   # substitute the version you verified
+pip install coworker-cli==0.7.0   # substitute the version you verified
 ```
 
 Releases are published to PyPI via Trusted Publishing on the same tag.
