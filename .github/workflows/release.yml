@@ -1,0 +1,181 @@
+name: release
+
+# Coworker release workflow.
+# Triggers on tags matching v*. Builds wheel + sdist via `python -m build`,
+# generates a CycloneDX SBOM via syft, signs the wheel, sdist, and SBOM with
+# cosign keyless OIDC, attests SLSA L2 build provenance for the distributions,
+# publishes to PyPI via Trusted Publishing (OIDC, no API token), and uploads
+# every artefact + signature to a GitHub Release.
+#
+# Approach mirrors the Datarim framework release.yml (Hybrid C — cosign
+# sign-blob for portable verification + GitHub-native attestations for SLSA L2),
+# adapted from a `git archive` source tarball to Python distributions and with
+# a PyPI publish step bolted on. End-user verify recipe lives in
+# docs/release-verification.md.
+#
+# Tools install pattern:
+#   - cosign + syft       -> standalone binaries, sha256-verified.
+#   - actions/*           -> SHA-pinned to commit (Datarim Security Mandate S4).
+#
+# PyPI auth: Trusted Publishing. A one-time "pending publisher" must be
+# registered on pypi.org (project=coworker, owner=Arcanada-one,
+# workflow=release.yml, environment=pypi) before the first tag — see
+# docs/release-verification.md § Maintainer setup.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  COSIGN_VERSION: v3.0.6
+  COSIGN_SHA256: c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74
+  SYFT_VERSION: v1.43.0
+  SYFT_SHA256: 7b98251d2d08926bb5d4639b56b1f0996a58ef6667c5830e3fe3cd3ad5f4214a
+
+jobs:
+  release:
+    name: build-sign-attest-publish
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: write       # required to create the GitHub Release
+      id-token: write       # required for cosign keyless OIDC + attestations + PyPI Trusted Publishing
+      attestations: write   # required for actions/attest-build-provenance
+    steps:
+      - name: Validate tag format
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|alpha|beta|test)[0-9]+)?$ ]]; then
+            echo "::error::tag '$tag' does not match release format ^v\\d+\\.\\d+\\.\\d+(-(rc|alpha|beta|test)\\d+)?$"
+            exit 1
+          fi
+          {
+            echo "TAG=$tag"
+            echo "VERSION=${tag#v}"
+          } >> "$GITHUB_ENV"
+          # Mark non-stable suffixes as prerelease.
+          if [[ "$tag" =~ -(rc|alpha|beta|test)[0-9]+$ ]]; then
+            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+
+      - name: Install cosign (verified binary)
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" -o /tmp/cosign
+          echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
+          sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign
+          cosign version
+
+      - name: Install syft (verified binary)
+        run: |
+          set -euo pipefail
+          asset="syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
+          curl -fsSL "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${asset}" -o "/tmp/${asset}"
+          echo "${SYFT_SHA256}  /tmp/${asset}" | sha256sum -c -
+          tar -xzf "/tmp/${asset}" -C /tmp syft
+          sudo install -m 0755 /tmp/syft /usr/local/bin/syft
+          syft version
+
+      - name: Build wheel + sdist
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+          # dist/ holds ONLY the PyPI-uploadable distributions (wheel + sdist).
+          # Signatures, checksums, and the SBOM are written outside dist/ so the
+          # PyPI publish step (which uploads the whole packages-dir) never sees them.
+          python -m build --outdir dist
+          ls -la dist/
+
+      - name: Assert built version matches tag (fail-closed)
+        run: |
+          set -euo pipefail
+          wheel="$(ls dist/coworker-*.whl)"
+          sdist="$(ls dist/coworker-*.tar.gz)"
+          # Wheel filename is coworker-<version>-py3-none-any.whl;
+          # sdist is coworker-<version>.tar.gz.
+          wheel_ver="$(basename "$wheel" | sed -E 's/^coworker-([^-]+)-.*\.whl$/\1/')"
+          sdist_ver="$(basename "$sdist" | sed -E 's/^coworker-(.+)\.tar\.gz$/\1/')"
+          echo "tag VERSION=${VERSION}  wheel=${wheel_ver}  sdist=${sdist_ver}"
+          if [[ "$wheel_ver" != "$VERSION" || "$sdist_ver" != "$VERSION" ]]; then
+            echo "::error::built version mismatch — tag=${VERSION} wheel=${wheel_ver} sdist=${sdist_ver}; bump pyproject.toml to match the tag"
+            exit 1
+          fi
+          {
+            echo "WHEEL=$wheel"
+            echo "SDIST=$sdist"
+          } >> "$GITHUB_ENV"
+
+      # PyPI publish runs while dist/ holds ONLY the wheel + sdist — before the
+      # signing step writes .cosign.bundle / .sha256 sidecars next to them.
+      # pypa/gh-action-pypi-publish uploads the whole packages-dir and rejects
+      # non-distribution files, so a pristine dist/ at this point is required.
+      - name: Publish to PyPI (Trusted Publishing — OIDC, no token)
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: dist/
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          set -euo pipefail
+          sbom="coworker-${TAG}-sbom.cdx.json"
+          syft scan dir:. -o "cyclonedx-json=${sbom}"
+          # Sanity: bomFormat must be CycloneDX, components array non-empty.
+          jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' "$sbom" > /dev/null
+          echo "SBOM=$sbom" >> "$GITHUB_ENV"
+
+      - name: Cosign sign-blob + sha256 (wheel, sdist, SBOM)
+        run: |
+          set -euo pipefail
+          for f in "$WHEEL" "$SDIST" "$SBOM"; do
+            cosign sign-blob --bundle "${f}.cosign.bundle" --yes "$f"
+            test -s "${f}.cosign.bundle"
+            sha256sum "$f" > "${f}.sha256"
+          done
+
+      - name: Attest build provenance (SLSA L2)
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            ${{ env.WHEEL }}
+            ${{ env.SDIST }}
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          prerelease: ${{ env.IS_PRERELEASE }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          body: |
+            Verify this release before installing — see
+            [docs/release-verification.md](https://github.com/Arcanada-one/coworker/blob/${{ env.TAG }}/docs/release-verification.md).
+
+            Install: `pip install coworker==${{ env.VERSION }}`
+          files: |
+            ${{ env.WHEEL }}
+            ${{ env.WHEEL }}.cosign.bundle
+            ${{ env.WHEEL }}.sha256
+            ${{ env.SDIST }}
+            ${{ env.SDIST }}.cosign.bundle
+            ${{ env.SDIST }}.sha256
+            ${{ env.SBOM }}
+            ${{ env.SBOM }}.cosign.bundle
+            ${{ env.SBOM }}.sha256

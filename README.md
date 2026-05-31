@@ -53,8 +53,15 @@ coworker ask --provider deepseek \
 Requires Python 3.10+. No system packages.
 
 ```bash
-pip install git+https://github.com/Arcanada-one/coworker
+pip install coworker
 ```
+
+Or pin a specific release: `pip install coworker==0.6.3`. To install straight
+from source instead: `pip install git+https://github.com/Arcanada-one/coworker`.
+
+Releases are signed with cosign and carry SLSA L2 build provenance — see
+[`docs/release-verification.md`](docs/release-verification.md) to verify a
+download before installing.
 
 For development:
 
@@ -227,6 +234,7 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 - [`docs/logging-privacy.md`](docs/logging-privacy.md)
 - [`docs/claude-code-integration.md`](docs/claude-code-integration.md)
 - [`docs/rtk-plugin.md`](docs/rtk-plugin.md)
+- [`docs/release-verification.md`](docs/release-verification.md)
 - [`docs/troubleshooting.md`](docs/troubleshooting.md)
 
 ## License

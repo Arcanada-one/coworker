@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Automated signed release pipeline (`.github/workflows/release.yml`).** A `v*` tag push now builds the wheel + sdist, asserts the built version matches the tag (fail-closed), generates a CycloneDX SBOM, signs the wheel, sdist, and SBOM with cosign keyless OIDC, attests SLSA L2 build provenance, publishes to **PyPI via Trusted Publishing** (OIDC — no API token stored anywhere), and creates a GitHub Release with every artefact plus its `.cosign.bundle` and `.sha256` sidecar. `pip install coworker` now resolves from PyPI. Consumer verify recipe: [`docs/release-verification.md`](docs/release-verification.md). All third-party actions are SHA-pinned and cosign/syft binaries are sha256-verified before use. A `pytest` guard (`tests/test_release_workflow.py`) locks the workflow's structural invariants. First publish requires a one-time PyPI pending-publisher registration — see the verify doc § Maintainer setup.
+
 ## [0.6.3] — 2026-05-30
 
 ### Fixed
