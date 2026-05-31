@@ -52,8 +52,12 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|alpha|beta|test)[0-9]+)?$ ]]; then
-            echo "::error::tag '$tag' does not match release format ^v\\d+\\.\\d+\\.\\d+(-(rc|alpha|beta|test)\\d+)?$"
+          # Prerelease suffixes are limited to PEP 440-buildable tokens
+          # (rc / alpha / beta). 'test' is intentionally excluded — it is not a
+          # valid PEP 440 version segment, so `python -m build` would reject it
+          # and no distribution would ever be produced.
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(rc|alpha|beta)[0-9]+)?$ ]]; then
+            echo "::error::tag '$tag' does not match release format ^v\\d+\\.\\d+\\.\\d+(-(rc|alpha|beta)\\d+)?$"
             exit 1
           fi
           {
@@ -61,7 +65,7 @@ jobs:
             echo "VERSION=${tag#v}"
           } >> "$GITHUB_ENV"
           # Mark non-stable suffixes as prerelease.
-          if [[ "$tag" =~ -(rc|alpha|beta|test)[0-9]+$ ]]; then
+          if [[ "$tag" =~ -(rc|alpha|beta)[0-9]+$ ]]; then
             echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
           else
             echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
@@ -112,8 +116,17 @@ jobs:
           # sdist is coworker-<version>.tar.gz.
           wheel_ver="$(basename "$wheel" | sed -E 's/^coworker-([^-]+)-.*\.whl$/\1/')"
           sdist_ver="$(basename "$sdist" | sed -E 's/^coworker-(.+)\.tar\.gz$/\1/')"
-          echo "tag VERSION=${VERSION}  wheel=${wheel_ver}  sdist=${sdist_ver}"
-          if [[ "$wheel_ver" != "$VERSION" || "$sdist_ver" != "$VERSION" ]]; then
+          # Compare on PEP 440 canonical forms, not raw strings. `python -m build`
+          # normalizes the version in the filename (tag v0.7.0-rc1 -> wheel
+          # 0.7.0rc1, and canonical 0.7rc1), so a literal compare of the tag
+          # version against the filename version false-fails every prerelease.
+          # `packaging` is a transitive dependency of `build`, present here.
+          canon() { python -c 'import sys; from packaging.utils import canonicalize_version as c; print(c(sys.argv[1]))' "$1"; }
+          want="$(canon "$VERSION")"
+          got_wheel="$(canon "$wheel_ver")"
+          got_sdist="$(canon "$sdist_ver")"
+          echo "tag VERSION=${VERSION} (canon ${want})  wheel=${wheel_ver} (canon ${got_wheel})  sdist=${sdist_ver} (canon ${got_sdist})"
+          if [[ "$got_wheel" != "$want" || "$got_sdist" != "$want" ]]; then
             echo "::error::built version mismatch — tag=${VERSION} wheel=${wheel_ver} sdist=${sdist_ver}; bump pyproject.toml to match the tag"
             exit 1
           fi

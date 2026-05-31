@@ -86,6 +86,37 @@ def test_version_matches_tag_assertion():
     )
 
 
+def test_version_assert_normalizes_before_comparing():
+    # The version-assert must NOT compare the raw tag version against the built
+    # wheel version with a literal string equality. `python -m build` writes the
+    # PEP 440-normalized version into the filename (tag v0.7.0-rc1 -> wheel
+    # coworker-0.7.0rc1-...whl), so a raw `!=` fires on every valid prerelease
+    # tag. The assert must canonicalize both sides (packaging.canonicalize_version)
+    # before comparing.
+    blob = _step_blob()
+    assert "canonicalize_version" in blob, (
+        "version-assert must canonicalize both the tag and the built version "
+        "(packaging.utils.canonicalize_version) so PEP 440 prerelease tags "
+        "(v0.7.0-rc1 -> 0.7.0rc1) do not false-fail the fail-closed gate"
+    )
+
+
+def test_tag_format_excludes_unbuildable_test_suffix():
+    # `test` is not a valid PEP 440 prerelease segment — `python -m build`
+    # rejects version "0.7.0test1" and produces no distribution, so a v*-test*
+    # tag could never publish. The tag-format / prerelease regexes must accept
+    # only buildable PEP 440 prerelease tokens (rc / alpha / beta).
+    text = _workflow_text()
+    assert "test)" not in text and "|test" not in text, (
+        "tag-format regex must not advertise a `test` prerelease suffix — "
+        "it is not a buildable PEP 440 version for a Python distribution"
+    )
+    # The supported set is exactly rc / alpha / beta.
+    assert re.search(r"\(rc\|alpha\|beta\)", text), (
+        "prerelease suffix set should be (rc|alpha|beta)"
+    )
+
+
 def test_sbom_is_generated():
     blob = _step_blob()
     assert "syft" in blob, "workflow must generate an SBOM via syft"
