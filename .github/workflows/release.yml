@@ -19,8 +19,12 @@ name: release
 #
 # PyPI auth: Trusted Publishing. A one-time "pending publisher" must be
 # registered on pypi.org (project=coworker-cli, owner=Arcanada-one,
-# workflow=release.yml, environment=pypi) before the first tag — see
-# docs/release-verification.md § Maintainer setup.
+# workflow=release.yml) before the first tag. The publish job now runs in a
+# CONDITIONAL environment (release-auto for patch/minor, release-manual for
+# major), so a trusted publisher must be registered for EACH environment value
+# the publish actually uses (one pending publisher per (owner,repo,workflow,
+# environment) tuple — there is no API; see docs/release-verification.md
+# § Maintainer setup and the framework how-to docs/how-to/pypi-first-publish.md).
 
 on:
   push:
@@ -39,10 +43,66 @@ env:
   SYFT_SHA256: 7b98251d2d08926bb5d4639b56b1f0996a58ef6667c5830e3fe3cd3ad5f4214a
 
 jobs:
+  # Major-gate backstop. Reads the bump level the release agent stamped into the
+  # annotated tag, re-derives it in CI from Conventional Commits (self-contained —
+  # no cross-repo dependency), and takes max(stamped, ci). The release job selects
+  # its environment from this output: a major bump routes to release-manual
+  # (required reviewer); patch/minor flows through release-auto.
+  classify:
+    name: classify-bump
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      bump_level: ${{ steps.read.outputs.bump_level }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Read and re-classify bump from annotated tag
+        id: read
+        run: |
+          set -euo pipefail
+          # 1. Bump level the agent stamped into the annotated tag message.
+          msg="$(git for-each-ref "refs/tags/${GITHUB_REF_NAME}" --format='%(contents)')"
+          stamped="$(printf '%s\n' "$msg" | sed -n 's/^bump_level=//p' | head -1)"
+          : "${stamped:=minor}"
+          # 2. Re-derive from Conventional Commits since the previous tag (self-contained).
+          prev="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          range="${prev:+${prev}..}${GITHUB_REF_NAME}"
+          ci=none
+          rank() { case "$1" in none) echo 0;; patch) echo 1;; minor) echo 2;; major) echo 3;; *) echo 0;; esac; }
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            one="none"
+            case "$line" in
+              *'!:'*) one="major" ;;
+              feat:*|feat\(*) one="minor" ;;
+              fix:*|fix\(*|perf:*|perf\(*) one="patch" ;;
+            esac
+            [ "$(rank "$one")" -gt "$(rank "$ci")" ] && ci="$one"
+          done < <(git log --format='%s' "$range")
+          # BREAKING CHANGE footer anywhere in the range -> major.
+          if git log --format='%b' "$range" | grep -qE '^BREAKING[ -]CHANGE:'; then ci=major; fi
+          # 3. Defence-in-depth: take max(stamped, ci).
+          if [ "$(rank "$ci")" -ge "$(rank "$stamped")" ]; then final="$ci"; else final="$stamped"; fi
+          [ "$final" = none ] && final="$stamped"
+          echo "bump_level=${final}" >> "$GITHUB_OUTPUT"
+          if [ "$ci" = major ] && [ "$stamped" != major ]; then
+            echo "::error::CI classified MAJOR but the tag stamped '${stamped}' — aborting" >&2
+            exit 1
+          fi
+
   release:
     name: build-sign-attest-publish
+    needs: [classify]
     runs-on: ubuntu-latest
-    environment: pypi
+    # Conditional environment: a major bump requires the operator reviewer on
+    # release-manual; patch/minor flows through release-auto (no reviewer). Both
+    # environments are registered as PyPI trusted publishers (one per env value).
+    environment:
+      name: ${{ (needs.classify.outputs.bump_level == 'major' && 'release-manual') || 'release-auto' }}
     permissions:
       contents: write       # required to create the GitHub Release
       id-token: write       # required for cosign keyless OIDC + attestations + PyPI Trusted Publishing
