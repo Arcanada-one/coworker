@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import openai
-import pytest
 
 from coworker.providers import classify_api_error
 
