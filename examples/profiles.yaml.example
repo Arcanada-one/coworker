@@ -2,6 +2,14 @@
 #
 # Each profile fixes a system prompt, a default-recommended provider, and per-subcommand token budgets.
 # Switch with `--profile <name>`; override the recommended provider per call with `--provider <name>`.
+#
+# Optional `recommended_model` (TUNE-0468): pins a per-profile model, e.g. a
+# stronger reasoning model for `code`/`write` without changing the provider
+# default globally. Resolution precedence for the model actually sent to the
+# API: `--model` flag > profile.recommended_model > provider.default_model
+# (mirrors the provider-resolution precedence above). Omitting the field is
+# fully backward compatible — falls straight through to the provider default,
+# exactly like before this field existed.
 
 code:
   description: Generic code analysis
@@ -13,6 +21,7 @@ code:
   default_max_tokens_ask: 16384
   default_max_tokens_write: 24000
   recommended_provider: deepseek
+  # recommended_model: deepseek-v4-pro
 
 write:
   description: Boilerplate generation

@@ -61,3 +61,24 @@ def test_unknown_provider_exits_nonzero(capsys):
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "unknown provider 'bogus'" in captured.err
+
+
+def test_profile_recommended_model_used_when_no_flag():
+    args = Namespace(provider="deepseek", model=None)
+    profile = {"recommended_model": "deepseek-v4-pro", "system_prompt": ""}
+    _, _, model = resolve_provider_and_model(args, PROVIDERS, profile=profile)
+    assert model == "deepseek-v4-pro"
+
+
+def test_flag_model_overrides_profile_recommended_model():
+    args = Namespace(provider="deepseek", model="explicit-model")
+    profile = {"recommended_model": "deepseek-v4-pro", "system_prompt": ""}
+    _, _, model = resolve_provider_and_model(args, PROVIDERS, profile=profile)
+    assert model == "explicit-model"
+
+
+def test_provider_default_used_when_no_flag_no_profile_model():
+    args = Namespace(provider="deepseek", model=None)
+    profile = {"system_prompt": ""}
+    _, _, model = resolve_provider_and_model(args, PROVIDERS, profile=profile)
+    assert model == PROVIDERS["deepseek"]["default_model"]
