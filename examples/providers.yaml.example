@@ -4,6 +4,12 @@
 # All five providers speak the OpenAI chat-completions API; only base_url and env_key differ.
 # Pricing is per 1M tokens in USD. cache_input applies to providers that bill prefix-cache reads at a discount.
 # Set pricing: null to silence cost tracking for a provider.
+#
+# Balance-exhausted handling (TUNE-0468): if a provider returns HTTP 402 (or an
+# insufficient-balance/credit/quota-shaped error) on a chat-completions call,
+# `ask`/`write` print a top-up message to stderr and exit 7. Any other API
+# error (auth, malformed request, etc.) exits 8 with the raw error message —
+# neither case is swallowed or misreported as the other.
 
 moonshot:
   base_url: https://api.moonshot.ai/v1

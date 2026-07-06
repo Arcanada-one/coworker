@@ -10,7 +10,7 @@ import time
 from .config import BLOBS_ROOT, load_providers
 from .logger import get_cached_tokens, log_call
 from .profiles import load_profile
-from .providers import make_client, resolve_provider_and_model
+from .providers import classify_api_error, make_client, resolve_provider_and_model
 from .stats import cmd_stats
 
 # File-type gate (TUNE-0258). Default-deny: only text-doc inputs pass.
@@ -20,6 +20,11 @@ _EXTENSIONLESS_NAME_ALLOW: frozenset[str] = frozenset({
     "readme", "license", "changelog", "authors",
 })
 GATE_BLOCKED_EXIT = 6
+# Balance-exhausted (TUNE-0468): provider returned HTTP 402 / an
+# insufficient-balance-shaped error. Generic (non-balance) API error uses a
+# distinct code so callers can tell the two failure modes apart.
+BALANCE_EXHAUSTED_EXIT = 7
+API_ERROR_EXIT = 8
 
 
 def _check_file_type(path: pathlib.Path) -> str | None:
@@ -146,11 +151,22 @@ def cmd_ask(args) -> int:
 
     client = make_client(prov_cfg)
     t0 = time.monotonic()
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=max_tokens,
-    )
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:  # noqa: BLE001 — classified below, non-balance re-prints + exits
+        kind = classify_api_error(exc)
+        if kind == "balance":
+            print(
+                f"[coworker] provider {prov_name} balance exhausted — top up",
+                file=sys.stderr,
+            )
+            return BALANCE_EXHAUSTED_EXIT
+        print(f"[coworker] provider {prov_name} API error: {exc}", file=sys.stderr)
+        return API_ERROR_EXIT
     latency_ms = (time.monotonic() - t0) * 1000
 
     log_extra = _build_gate_log_extra(gate_errors, allow_code, paths)
@@ -237,11 +253,22 @@ def cmd_write(args) -> int:
 
     client = make_client(prov_cfg)
     t0 = time.monotonic()
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=max_tokens,
-    )
+    try:
+        resp = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+        )
+    except Exception as exc:  # noqa: BLE001 — classified below, non-balance re-prints + exits
+        kind = classify_api_error(exc)
+        if kind == "balance":
+            print(
+                f"[coworker] provider {prov_name} balance exhausted — top up",
+                file=sys.stderr,
+            )
+            return BALANCE_EXHAUSTED_EXIT
+        print(f"[coworker] provider {prov_name} API error: {exc}", file=sys.stderr)
+        return API_ERROR_EXIT
     latency_ms = (time.monotonic() - t0) * 1000
 
     body = (resp.choices[0].message.content or "").strip()
