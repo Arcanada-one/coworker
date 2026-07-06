@@ -156,6 +156,7 @@ set -u
 
 REAL_BIN={real_binary!r}
 RTK_BIN={rtk_binary!r}
+GREP_BIN='/usr/bin/grep'
 MARKER_FILE="$HOME/.claude/settings.json"
 
 # Recursion guard (rtk wraps real binary internally).
@@ -164,7 +165,7 @@ if [ -n "${{_COWORKER_RTK_SHIM_ACTIVE:-}}" ]; then
 fi
 
 # On/off probe — Claude settings.json marker is single source of truth.
-if [ ! -f "$MARKER_FILE" ] || ! grep -q '_managed_by.*coworker-rtk' "$MARKER_FILE" 2>/dev/null; then
+if [ ! -x "$GREP_BIN" ] || [ ! -f "$MARKER_FILE" ] || ! "$GREP_BIN" -q '_managed_by.*coworker-rtk' "$MARKER_FILE" 2>/dev/null; then
     exec "$REAL_BIN" "$@"
 fi
 

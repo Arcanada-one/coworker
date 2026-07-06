@@ -38,9 +38,10 @@ openrouter:
 deepseek:
   base_url: https://api.deepseek.com/v1
   env_key: DEEPSEEK_API_KEY
-  default_model: deepseek-chat
+  default_model: deepseek-v4-flash
   pricing:
-    deepseek-chat: {input: 0.14, output: 0.28, cache_input: 0.014}
+    deepseek-v4-flash: {input: 0.14, output: 0.28, cache_input: 0.0028}
+    deepseek-v4-pro: {input: 0.435, output: 0.87, cache_input: 0.003625}
   prefix_cache: true
 
 openai:

@@ -11,6 +11,10 @@ When you run `coworker ask` (or `write`), the provider is chosen in this order:
 3. `$COWORKER_DEFAULT_PROVIDER` env var.
 4. Built-in fallback: `moonshot`.
 
+For Arcanada's cost-sensitive default, set `COWORKER_DEFAULT_PROVIDER=deepseek`.
+Profiles with `recommended_provider: deepseek` already route to DeepSeek even
+when the environment fallback is different.
+
 If the resolved name is not a key in `providers.yaml`, `coworker` prints `unknown provider 'X'` and exits with code 1.
 
 ## Per-provider notes
@@ -24,9 +28,12 @@ If the resolved name is not a key in `providers.yaml`, `coworker` prints `unknow
 ### DeepSeek
 
 - **API key:** https://platform.deepseek.com (set `DEEPSEEK_API_KEY`).
-- **Default model:** `deepseek-chat`. Cheapest mainstream provider; good for `code` and `social` profiles.
+- **Default model:** `deepseek-v4-flash`. Cheapest mainstream provider; good for `code` and `social` profiles.
 - **Prefix cache:** automatic. `cache_input` discount roughly 10× over uncached input.
-- For reasoning-heavy work, override with `--model deepseek-reasoner`.
+- `deepseek-chat` and `deepseek-reasoner` are legacy aliases scheduled for
+  retirement on 2026-07-24 15:59 UTC; prefer the explicit V4 model names.
+- For reasoning-heavy work, override with `--model deepseek-v4-pro` or set
+  `recommended_model: deepseek-v4-pro` on the relevant profile.
 
 ### Groq
 

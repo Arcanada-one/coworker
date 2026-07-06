@@ -41,7 +41,7 @@ Required fields: `system_prompt` and `recommended_provider`. Everything else has
 | Variable                       | Effect                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------- |
 | `<PROVIDER>_API_KEY`           | Per-provider API key. Required to call that provider. Name comes from `providers.yaml.<provider>.env_key`. |
-| `COWORKER_DEFAULT_PROVIDER`    | Fallback provider name when neither `--provider` nor `profile.recommended_provider` is set. Default: `moonshot`. |
+| `COWORKER_DEFAULT_PROVIDER`    | Fallback provider name when neither `--provider` nor `profile.recommended_provider` is set. Default: `moonshot`; set to `deepseek` for DeepSeek-first installs. |
 | `COWORKER_NO_LOG=1`            | Globally disable JSONL logging (also disables blob writes). |
 | `COWORKER_LOG_CORPUS=1`        | Enable sha256-deduplicated corpus blob writes. **Off by default**. See [`logging-privacy.md`](logging-privacy.md). |
 | `XDG_CONFIG_HOME`              | Override config root. Default: `~/.config`. Coworker's dir is `${XDG_CONFIG_HOME}/coworker/`. |

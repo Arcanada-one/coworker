@@ -76,6 +76,8 @@ def test_install_shims_writes_executable_wrappers(isolated):
         assert str(isolated["fake_rtk"]) in body
         assert str(isolated["fake_bin"] / cmd) in body
         assert "_COWORKER_RTK_SHIM_ACTIVE" in body
+        assert 'GREP_BIN=\'/usr/bin/grep\'' in body
+        assert '! "$GREP_BIN" -q' in body
 
 
 def test_shim_dir_is_user_only(isolated):

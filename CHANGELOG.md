@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-07-06
+
+### Fixed
+
+- **Codex RTK shim marker probe no longer recurses through the RTK `grep` shim.** The generated shim now uses `/usr/bin/grep` for its `_managed_by: coworker-rtk` settings probe, so `git --version` and other non-passthrough `git` invocations cannot be slowed or distorted by a nested `grep` shim before the real command is selected.
+- **Runtime version constant resynchronised.** `coworker.__version__` now matches the package version (`0.8.1`), preventing installed copies from reporting stale `0.6.3` metadata after the `0.8.x` line.
+
 ## [0.8.0] — 2026-07-06
 
 ### Added
