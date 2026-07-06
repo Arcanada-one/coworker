@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-07-06
+
+### Added
+
+- **Per-profile model resolution (TUNE-0468).** A profile may now carry `recommended_model`; the model resolver precedence is `--model` flag > `profile.recommended_model` > `provider.default_model`. This lets a reasoning-heavy profile (e.g. `datarim`) pin a stronger model (e.g. `deepseek-v4-pro`) without a manual `--model` flag, while action profiles inherit the provider default. Applies to both `ask` and `write`.
+- **Provider balance-exhaustion handling (TUNE-0468).** `classify_api_error()` detects HTTP 402 / insufficient-balance/credit/quota responses across providers; both API call sites are wrapped so a balance-exhausted provider now exits `7` with a clear `[coworker] provider <p> balance exhausted — top up` message instead of an uncaught stack-trace. Other provider API errors exit `8` (distinct, non-swallowed).
+
 ## [0.7.0] — 2026-06-01
 
 ### Changed
