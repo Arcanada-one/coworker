@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-07-08
+
+### Changed
+
+- **Example profile policy now separates cheap reading from meaningful writing.** The sample `profiles.yaml` adds `doc-read` and `classifier` on `deepseek-v4-flash`, pins `write` and `datarim-write` to `deepseek-v4-pro`, and marks legacy `datarim`, `code`, `codex`, and `social` as fail-closed profile names for Datarim-style deployments.
+- **DeepSeek guidance no longer recommends source-code or voice-bearing content delegation.** Provider setup docs now describe `deepseek-v4-flash` as appropriate for literal documentation extraction and short classifier/router prompts, while code analysis and social/content voice stay with the primary agent unless the operator explicitly opts into delegation.
+
 ## [0.8.1] — 2026-07-06
 
 ### Fixed

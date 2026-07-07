@@ -4,24 +4,35 @@
 # Switch with `--profile <name>`; override the recommended provider per call with `--provider <name>`.
 #
 # Optional `recommended_model` (TUNE-0468): pins a per-profile model, e.g. a
-# stronger reasoning model for `code`/`write` without changing the provider
+# cheaper doc-reading model for `doc-read` or stronger generation model for `write`
 # default globally. Resolution precedence for the model actually sent to the
 # API: `--model` flag > profile.recommended_model > provider.default_model
 # (mirrors the provider-resolution precedence above). Omitting the field is
 # fully backward compatible — falls straight through to the provider default,
 # exactly like before this field existed.
 
-code:
-  description: Generic code analysis
+doc-read:
+  description: Literal documentation extraction and summarization
   system_prompt: |
-    You are a precise code analyst. Given a corpus of source files,
-    answer the user's question with concrete references (file:line, symbol
-    names, exact values). Be terse. Use bullet points. Quote only the lines
-    that matter. If the answer isn't in the corpus, say so explicitly.
+    You extract literal facts from documentation. Summarize, list, compare
+    explicit statements, and quote only the short lines that matter. Do not
+    invent policy or perform adversarial review. If the answer is not in the
+    corpus, say so explicitly.
   default_max_tokens_ask: 16384
-  default_max_tokens_write: 24000
+  default_max_tokens_write: 8192
   recommended_provider: deepseek
-  # recommended_model: deepseek-v4-pro
+  recommended_model: deepseek-v4-flash
+
+classifier:
+  description: Short routing/classification prompts
+  system_prompt: |
+    You classify short operational inputs and return the requested compact
+    schema. Do not review artifacts, reason about architecture, or generate
+    user-facing prose.
+  default_max_tokens_ask: 4096
+  default_max_tokens_write: 4096
+  recommended_provider: deepseek
+  recommended_model: deepseek-v4-flash
 
 write:
   description: Boilerplate generation
@@ -32,33 +43,56 @@ write:
   default_max_tokens_ask: 8192
   default_max_tokens_write: 24000
   recommended_provider: deepseek
+  recommended_model: deepseek-v4-pro
 
-social:
-  description: Social media posts
+datarim-write:
+  description: Datarim artifact first drafts
   system_prompt: |
-    You write social media posts. Match platform conventions. No
-    corporate-speak. No "In conclusion". Default to the user's voice.
-  default_max_tokens_ask: 4096
-  default_max_tokens_write: 4096
-  recommended_provider: deepseek
-
-codex:
-  description: Codex CLI runtime (Datarim multi-runtime parity with `code` profile)
-  system_prompt: |
-    You assist a Codex CLI session running over a Datarim-managed
-    workspace. Conventions are the same as the `code` profile, with two
-    additions: (1) when reading Datarim runtime artefacts (CLAUDE.md,
-    AGENTS.md, tasks.md, backlog.md, archive-*.md, prd-*.md, plans-*.md,
-    init-task-*.md, expectations-*.md), preserve YAML frontmatter
-    byte-exact and never reorder keys; (2) when the operator references
-    a slash-command (`/dr-status`, `/dr-do`, ...), treat it as a
-    Datarim pipeline command, not as shell input. Reply with surgical
-    edits (file:line + replacement) when reading existing docs. Be
-    terse. Quote only the lines that matter. If the answer isn't in the
-    corpus, say so explicitly.
-  default_max_tokens_ask: 16384
+    You draft Datarim artifacts from explicit instructions and supplied
+    context. Preserve required frontmatter and schema conventions. Output only
+    the requested artifact body; the caller will review and edit judgment parts.
+  default_max_tokens_ask: 8192
   default_max_tokens_write: 24000
   recommended_provider: deepseek
+  recommended_model: deepseek-v4-pro
+
+datarim:
+  description: Legacy profile; use doc-read for literal ask or datarim-write for write
+  system_prompt: |
+    This profile is intentionally disabled in Datarim policy. Use doc-read
+    for literal documentation extraction and datarim-write for allowed first
+    drafts. Do not route artifact review or semantic QA through coworker.
+  default_max_tokens_ask: 16384
+  default_max_tokens_write: 24000
+  recommended_provider: none
+
+code:
+  description: Legacy profile; source-code analysis stays native in the selected agent
+  system_prompt: |
+    This profile is intentionally disabled in Datarim policy. Use the
+    selected agent runtime directly for code reading and code analysis.
+  default_max_tokens_ask: 16384
+  default_max_tokens_write: 24000
+  recommended_provider: none
+
+codex:
+  description: Legacy profile; Codex runtime reads directly
+  system_prompt: |
+    This profile is intentionally disabled in Datarim policy. Codex should
+    read and analyze files directly unless a literal documentation read uses
+    the doc-read profile.
+  default_max_tokens_ask: 16384
+  default_max_tokens_write: 24000
+  recommended_provider: none
+
+social:
+  description: Legacy profile; voice-bearing content stays native
+  system_prompt: |
+    This profile is intentionally disabled in Datarim policy. Voice-bearing
+    content should be written by the selected model itself.
+  default_max_tokens_ask: 4096
+  default_max_tokens_write: 4096
+  recommended_provider: none
 
 # Example custom profile — adapt for your own workflow:
 # my-profile:

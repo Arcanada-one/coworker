@@ -28,7 +28,7 @@ If the resolved name is not a key in `providers.yaml`, `coworker` prints `unknow
 ### DeepSeek
 
 - **API key:** https://platform.deepseek.com (set `DEEPSEEK_API_KEY`).
-- **Default model:** `deepseek-v4-flash`. Cheapest mainstream provider; good for `code` and `social` profiles.
+- **Default model:** `deepseek-v4-flash`. Cheapest mainstream provider; good for literal documentation extraction and short classifier/router prompts. Source-code reading and voice-bearing social/content writing should stay with the primary agent unless the operator explicitly opts into delegation.
 - **Prefix cache:** automatic. `cache_input` discount roughly 10× over uncached input.
 - `deepseek-chat` and `deepseek-reasoner` are legacy aliases scheduled for
   retirement on 2026-07-24 15:59 UTC; prefer the explicit V4 model names.
