@@ -1,0 +1,26 @@
+# public-surface-forbidden.regex — Arcanada-one/coworker
+#
+# Consumer regex file for the Public Surface Hygiene Mandate gate
+# (Arcanada-one/datarim .github/workflows/public-surface-lint.yml, invoked
+# from .github/workflows/public-surface.yml via `regex_file:`).
+#
+# public-surface-lint.sh takes a single regex file per invocation (one source
+# of truth — see its own header comment), so this file duplicates the
+# framework's neutral base patterns verbatim and appends coworker's own
+# project-specific task-prefix pattern below, per the base file's documented
+# consumer-extension convention.
+#
+# Base set (mirrors Arcanada-one/datarim dev-tools/public-surface-forbidden.regex):
+
+\bPRD-[A-Z]{2,10}-[0-9]{4}\b
+\bcreative-[A-Z]{2,10}-[0-9]{4}\b
+\bplans-[A-Z]{2,10}-[0-9]{4}\b
+\binsights-[A-Z]{2,10}-[0-9]{4}\b
+\breflection-[A-Z]{2,10}-[0-9]{4}\b
+\bdatarim/(tasks|creative|plans|insights|reflection)/
+\b(M|Phase) ?[1-9][0-9]*\b
+
+# Project-specific: internal Arcanada ecosystem task IDs (TUNE-tier backlog)
+# must not leak into shipped OSS content — provenance stays in git log / the
+# ecosystem backlog, never in a published README/CHANGELOG/docs page.
+\bTUNE-[0-9]{4}\b
