@@ -5,12 +5,16 @@ import json
 import os
 import pathlib
 import sys
-import time
 
 from .config import BLOBS_ROOT, load_providers
 from .logger import get_cached_tokens, log_call
 from .profiles import load_profile
-from .providers import classify_api_error, make_client, resolve_provider_and_model
+from .providers import (
+    call_with_fallback,
+    classify_api_error,
+    make_client,
+    resolve_provider_and_model,
+)
 from .stats import cmd_stats
 
 # File-type gate (TUNE-0258). Default-deny: only text-doc inputs pass.
@@ -149,13 +153,15 @@ def cmd_ask(args) -> int:
     corpus = _build_corpus(paths)
     messages = build_messages(system_prompt, corpus, args.question, corpus_first=True)
 
-    client = make_client(prov_cfg)
-    t0 = time.monotonic()
     try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
+        resp, prov_name, prov_cfg, model, latency_ms = call_with_fallback(
+            prov_name,
+            prov_cfg,
+            model,
+            profile,
+            providers,
+            {"messages": messages, "max_tokens": max_tokens},
+            client_factory=make_client,
         )
     except Exception as exc:  # noqa: BLE001 — classified below, non-balance re-prints + exits
         kind = classify_api_error(exc)
@@ -167,7 +173,6 @@ def cmd_ask(args) -> int:
             return BALANCE_EXHAUSTED_EXIT
         print(f"[coworker] provider {prov_name} API error: {exc}", file=sys.stderr)
         return API_ERROR_EXIT
-    latency_ms = (time.monotonic() - t0) * 1000
 
     log_extra = _build_gate_log_extra(gate_errors, allow_code, paths)
 
@@ -251,13 +256,15 @@ def cmd_write(args) -> int:
         user_msg_spec,
     ]
 
-    client = make_client(prov_cfg)
-    t0 = time.monotonic()
     try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
+        resp, prov_name, prov_cfg, model, latency_ms = call_with_fallback(
+            prov_name,
+            prov_cfg,
+            model,
+            profile,
+            providers,
+            {"messages": messages, "max_tokens": max_tokens},
+            client_factory=make_client,
         )
     except Exception as exc:  # noqa: BLE001 — classified below, non-balance re-prints + exits
         kind = classify_api_error(exc)
@@ -269,7 +276,6 @@ def cmd_write(args) -> int:
             return BALANCE_EXHAUSTED_EXIT
         print(f"[coworker] provider {prov_name} API error: {exc}", file=sys.stderr)
         return API_ERROR_EXIT
-    latency_ms = (time.monotonic() - t0) * 1000
 
     body = (resp.choices[0].message.content or "").strip()
     if not body:

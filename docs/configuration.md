@@ -32,9 +32,20 @@ Top-level dict; each key is a profile you reference with `--profile <name>`.
   default_max_tokens_ask: <int>   # Used when --max-tokens is not passed for `coworker ask`.
   default_max_tokens_write: <int> # Used when --max-tokens is not passed for `coworker write`.
   recommended_provider: <string>  # Provider to use if --provider is not passed.
+  recommended_model: <string>     # Optional. Pins the model for this profile (see provider-setup.md).
+  fallback_provider: <string>     # Optional. Retry once on this provider when the primary returns
+                                  # a retryable error (HTTP 429 or a request timeout). Single-flight,
+                                  # at most one hop. Balance (402)/auth/generic errors are NOT retried.
+  fallback_model: <string>        # Optional. Model sent to fallback_provider (defaults to its default_model).
 ```
 
 Required fields: `system_prompt` and `recommended_provider`. Everything else has a fallback.
+
+When a profile declares `fallback_provider`, a rate-limit (HTTP 429) or timeout on the
+primary provider triggers exactly one automatic retry on the declared fallback. This is a
+single-flight hop — the fallback is tried once; if it also fails the error propagates. Errors
+that would fail identically on any provider (balance-exhausted 402, auth, malformed request)
+are never retried and surface immediately. Omit `fallback_provider` to keep fail-loud behavior.
 
 ## Environment variables
 

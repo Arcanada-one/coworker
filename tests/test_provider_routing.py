@@ -82,3 +82,204 @@ def test_provider_default_used_when_no_flag_no_profile_model():
     profile = {"system_prompt": ""}
     _, _, model = resolve_provider_and_model(args, PROVIDERS, profile=profile)
     assert model == PROVIDERS["deepseek"]["default_model"]
+
+
+# ---------------------------------------------------------------------------
+# TUNE-0132: provider fallback chain (429/timeout -> declared fallback)
+# ---------------------------------------------------------------------------
+
+from coworker.providers import (  # noqa: E402
+    call_with_fallback,
+    classify_retryable_error,
+    resolve_fallback_provider,
+)
+
+
+class _StatusError(Exception):
+    def __init__(self, status_code, message=""):
+        super().__init__(message or f"HTTP {status_code}")
+        self.status_code = status_code
+        self.message = message
+
+
+class _APITimeoutError(Exception):
+    """Mimics openai.APITimeoutError — no status_code, name matched by classifier."""
+
+
+# --- resolve_fallback_provider ---------------------------------------------
+
+def test_resolve_fallback_returns_declared_provider():
+    profile = {"fallback_provider": "openrouter"}
+    fb = resolve_fallback_provider(profile, PROVIDERS, "deepseek")
+    assert fb is not None
+    name, cfg, model = fb
+    assert name == "openrouter"
+    assert cfg["base_url"] == PROVIDERS["openrouter"]["base_url"]
+    assert model == PROVIDERS["openrouter"]["default_model"]
+
+
+def test_resolve_fallback_uses_fallback_model_when_declared():
+    profile = {"fallback_provider": "openrouter", "fallback_model": "custom/model"}
+    _, _, model = resolve_fallback_provider(profile, PROVIDERS, "deepseek")
+    assert model == "custom/model"
+
+
+def test_resolve_fallback_none_when_absent():
+    assert resolve_fallback_provider({"system_prompt": ""}, PROVIDERS, "deepseek") is None
+    assert resolve_fallback_provider(None, PROVIDERS, "deepseek") is None
+
+
+def test_resolve_fallback_none_when_same_as_primary():
+    profile = {"fallback_provider": "deepseek"}
+    assert resolve_fallback_provider(profile, PROVIDERS, "deepseek") is None
+
+
+def test_resolve_fallback_none_when_unknown_provider(capsys):
+    profile = {"fallback_provider": "bogus"}
+    assert resolve_fallback_provider(profile, PROVIDERS, "deepseek") is None
+    assert "unknown fallback_provider" in capsys.readouterr().err
+
+
+# --- classify_retryable_error ----------------------------------------------
+
+def test_classify_retryable_on_429():
+    assert classify_retryable_error(_StatusError(429)) == "retryable"
+
+
+def test_classify_retryable_on_timeout_class_name():
+    assert classify_retryable_error(_APITimeoutError("request timed out")) == "retryable"
+
+
+def test_classify_retryable_on_timeout_text():
+    assert classify_retryable_error(Exception("upstream timeout")) == "retryable"
+
+
+def test_classify_retryable_excludes_balance_402():
+    assert classify_retryable_error(_StatusError(402, "insufficient balance")) is None
+
+
+def test_classify_retryable_none_for_generic():
+    assert classify_retryable_error(_StatusError(401, "unauthorized")) is None
+    assert classify_retryable_error(Exception("bad request")) is None
+
+
+# --- call_with_fallback (fake client factory, no network) ------------------
+
+class _FakeClient:
+    """Fake OpenAI client: raise `raises` on create, else return `resp`."""
+
+    def __init__(self, resp=None, raises=None):
+        self._resp = resp
+        self._raises = raises
+        self.calls = []
+
+        class _Completions:
+            def __init__(self, outer):
+                self._outer = outer
+
+            def create(self, **kwargs):
+                self._outer.calls.append(kwargs)
+                if self._outer._raises is not None:
+                    raise self._outer._raises
+                return self._outer._resp
+
+        class _Chat:
+            def __init__(self, outer):
+                self.completions = _Completions(outer)
+
+        self.chat = _Chat(self)
+
+
+def _factory_map(mapping):
+    """Return a client_factory that keys off prov_cfg[env_key]."""
+    def factory(prov_cfg):
+        return mapping[prov_cfg["env_key"]]
+    return factory
+
+
+def test_call_with_fallback_hops_on_429():
+    primary = _FakeClient(raises=_StatusError(429, "rate limit"))
+    fallback = _FakeClient(resp="OK")
+    factory = _factory_map({
+        PROVIDERS["deepseek"]["env_key"]: primary,
+        PROVIDERS["openrouter"]["env_key"]: fallback,
+    })
+    profile = {"fallback_provider": "openrouter"}
+    resp, name, cfg, model, latency = call_with_fallback(
+        "deepseek", PROVIDERS["deepseek"], "deepseek-chat",
+        profile, PROVIDERS, {"messages": [], "max_tokens": 8},
+        client_factory=factory,
+    )
+    assert resp == "OK"
+    assert name == "openrouter"
+    assert model == PROVIDERS["openrouter"]["default_model"]
+    assert len(primary.calls) == 1
+    assert len(fallback.calls) == 1
+    assert latency >= 0
+
+
+def test_call_with_fallback_success_no_hop():
+    primary = _FakeClient(resp="PRIMARY")
+    fallback = _FakeClient(resp="SHOULD-NOT-BE-CALLED")
+    factory = _factory_map({
+        PROVIDERS["deepseek"]["env_key"]: primary,
+        PROVIDERS["openrouter"]["env_key"]: fallback,
+    })
+    profile = {"fallback_provider": "openrouter"}
+    resp, name, _, _, _ = call_with_fallback(
+        "deepseek", PROVIDERS["deepseek"], "deepseek-chat",
+        profile, PROVIDERS, {"messages": [], "max_tokens": 8},
+        client_factory=factory,
+    )
+    assert resp == "PRIMARY"
+    assert name == "deepseek"
+    assert len(fallback.calls) == 0
+
+
+def test_call_with_fallback_reraises_balance_no_hop():
+    primary = _FakeClient(raises=_StatusError(402, "insufficient balance"))
+    fallback = _FakeClient(resp="OK")
+    factory = _factory_map({
+        PROVIDERS["deepseek"]["env_key"]: primary,
+        PROVIDERS["openrouter"]["env_key"]: fallback,
+    })
+    profile = {"fallback_provider": "openrouter"}
+    with pytest.raises(_StatusError) as exc:
+        call_with_fallback(
+            "deepseek", PROVIDERS["deepseek"], "deepseek-chat",
+            profile, PROVIDERS, {"messages": [], "max_tokens": 8},
+            client_factory=factory,
+        )
+    assert exc.value.status_code == 402
+    assert len(fallback.calls) == 0
+
+
+def test_call_with_fallback_reraises_when_no_fallback_declared():
+    primary = _FakeClient(raises=_StatusError(429, "rate limit"))
+    factory = _factory_map({PROVIDERS["deepseek"]["env_key"]: primary})
+    with pytest.raises(_StatusError) as exc:
+        call_with_fallback(
+            "deepseek", PROVIDERS["deepseek"], "deepseek-chat",
+            {"system_prompt": ""}, PROVIDERS, {"messages": [], "max_tokens": 8},
+            client_factory=factory,
+        )
+    assert exc.value.status_code == 429
+
+
+def test_call_with_fallback_single_hop_fallback_error_propagates():
+    """Fallback also 429s: at most ONE hop, second error must propagate."""
+    primary = _FakeClient(raises=_StatusError(429, "rate limit"))
+    fallback = _FakeClient(raises=_StatusError(429, "rate limit again"))
+    factory = _factory_map({
+        PROVIDERS["deepseek"]["env_key"]: primary,
+        PROVIDERS["openrouter"]["env_key"]: fallback,
+    })
+    profile = {"fallback_provider": "openrouter"}
+    with pytest.raises(_StatusError):
+        call_with_fallback(
+            "deepseek", PROVIDERS["deepseek"], "deepseek-chat",
+            profile, PROVIDERS, {"messages": [], "max_tokens": 8},
+            client_factory=factory,
+        )
+    assert len(primary.calls) == 1
+    assert len(fallback.calls) == 1

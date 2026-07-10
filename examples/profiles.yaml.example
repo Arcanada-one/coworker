@@ -10,6 +10,14 @@
 # (mirrors the provider-resolution precedence above). Omitting the field is
 # fully backward compatible — falls straight through to the provider default,
 # exactly like before this field existed.
+#
+# Optional `fallback_provider` (TUNE-0132): declare a secondary provider to
+# retry on ONCE when the primary returns a retryable error (HTTP 429 rate
+# limit or a request timeout). Balance-exhausted (402), auth, and generic
+# errors are NOT retried — they would fail identically on any provider.
+# The hop is single-flight (at most one). Optional `fallback_model` pins the
+# model sent to the fallback provider (defaults to that provider default_model).
+# Omitting `fallback_provider` keeps the pre-TUNE-0132 fail-loud behavior.
 
 doc-read:
   description: Literal documentation extraction and summarization
@@ -22,6 +30,7 @@ doc-read:
   default_max_tokens_write: 8192
   recommended_provider: deepseek
   recommended_model: deepseek-v4-flash
+  fallback_provider: openrouter
 
 classifier:
   description: Short routing/classification prompts
@@ -102,3 +111,5 @@ social:
 #   default_max_tokens_ask: 16384
 #   default_max_tokens_write: 24000
 #   recommended_provider: openai
+#   fallback_provider: openrouter   # retry once on 429/timeout
+#   fallback_model: deepseek/deepseek-chat-v3.5
