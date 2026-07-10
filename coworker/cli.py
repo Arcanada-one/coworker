@@ -401,6 +401,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_stats.add_argument("--profile", default=None)
     p_stats.add_argument("--provider", default=None)
     p_stats.add_argument("--format", default="text", choices=["text", "json"])
+    p_stats.add_argument(
+        "--export",
+        default=None,
+        choices=["csv", "markdown"],
+        help="Export aggregate as CSV or Markdown table (overrides --format).",
+    )
 
     p_debug = sub.add_parser("debug", help="Inspect a corpus blob by hash prefix.")
     p_debug.add_argument("--hash", required=True, help="Hash prefix (min 2 chars).")

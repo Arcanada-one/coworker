@@ -1,6 +1,8 @@
 """Stats helpers + cmd_stats subcommand."""
 
+import csv
 import datetime
+import io
 import json
 import pathlib
 import sys
@@ -83,6 +85,52 @@ def parse_since(since_str: str) -> datetime.datetime | None:
     return None
 
 
+
+_COLUMNS = [
+    ("key", "Key"),
+    ("count", "Count"),
+    ("sum_input_tokens", "InputTok"),
+    ("sum_output_tokens", "OutTok"),
+    ("sum_cost_usd", "Cost$"),
+    ("p50_latency_ms", "P50ms"),
+    ("p95_latency_ms", "P95ms"),
+    ("cache_hit_rate", "CacheHit"),
+]
+
+
+def _rows(agg: dict) -> list[dict]:
+    """Flatten aggregate dict into per-key rows (sorted by key)."""
+    rows = []
+    for key, m in sorted(agg.items()):
+        row = {"key": key}
+        row.update(m)
+        rows.append(row)
+    return rows
+
+
+def format_csv(agg: dict) -> str:
+    """Render aggregate as CSV (header + one row per key)."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([field for field, _ in _COLUMNS])
+    for row in _rows(agg):
+        writer.writerow([row.get(field, "") for field, _ in _COLUMNS])
+    return buf.getvalue()
+
+
+def format_markdown(agg: dict) -> str:
+    """Render aggregate as a GitHub-flavored Markdown table."""
+    headers = [label for _, label in _COLUMNS]
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join("---" for _ in headers) + " |",
+    ]
+    for row in _rows(agg):
+        cells = [str(row.get(field, "")) for field, _ in _COLUMNS]
+        lines.append("| " + " | ".join(cells) + " |")
+    return '\n'.join(lines) + '\n'
+
+
 def cmd_stats(args) -> int:
     since_dt = parse_since(args.since)
     records = parse_logs(log_dir=LOG_DIR, since_dt=since_dt)
@@ -92,14 +140,27 @@ def cmd_stats(args) -> int:
     if args.profile:
         records = [r for r in records if r.get("coworker.profile") == args.profile]
 
+    export = getattr(args, "export", None)
+
     if not records:
-        if args.format == "json":
+        if export == "csv":
+            print(format_csv({}), end="")
+        elif export == "markdown":
+            print(format_markdown({}), end="")
+        elif args.format == "json":
             print("{}")
         else:
             print("(no records)")
         return 0
 
     agg = aggregate_stats(records, by=args.by)
+
+    if export == "csv":
+        print(format_csv(agg), end="")
+        return 0
+    if export == "markdown":
+        print(format_markdown(agg), end="")
+        return 0
 
     if args.format == "json":
         print(json.dumps(agg, indent=2))
