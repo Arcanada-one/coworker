@@ -14,3 +14,4 @@ jobs:
     uses: Arcanada-one/datarim/.github/workflows/public-surface-lint.yml@main
     with:
       paths: 'README.md CHANGELOG.md docs'
+      regex_file: 'dev-tools/public-surface-forbidden.regex'

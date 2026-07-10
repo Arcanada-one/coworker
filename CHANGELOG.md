@@ -22,8 +22,8 @@ All notable changes to this project are documented in this file. Format follows 
 
 ### Added
 
-- **Per-profile model resolution (TUNE-0468).** A profile may now carry `recommended_model`; the model resolver precedence is `--model` flag > `profile.recommended_model` > `provider.default_model`. This lets a reasoning-heavy profile (e.g. `datarim`) pin a stronger model (e.g. `deepseek-v4-pro`) without a manual `--model` flag, while action profiles inherit the provider default. Applies to both `ask` and `write`.
-- **Provider balance-exhaustion handling (TUNE-0468).** `classify_api_error()` detects HTTP 402 / insufficient-balance/credit/quota responses across providers; both API call sites are wrapped so a balance-exhausted provider now exits `7` with a clear `[coworker] provider <p> balance exhausted — top up` message instead of an uncaught stack-trace. Other provider API errors exit `8` (distinct, non-swallowed).
+- **Per-profile model resolution.** A profile may now carry `recommended_model`; the model resolver precedence is `--model` flag > `profile.recommended_model` > `provider.default_model`. This lets a reasoning-heavy profile (e.g. `datarim`) pin a stronger model (e.g. `deepseek-v4-pro`) without a manual `--model` flag, while action profiles inherit the provider default. Applies to both `ask` and `write`.
+- **Provider balance-exhaustion handling.** `classify_api_error()` detects HTTP 402 / insufficient-balance/credit/quota responses across providers; both API call sites are wrapped so a balance-exhausted provider now exits `7` with a clear `[coworker] provider <p> balance exhausted — top up` message instead of an uncaught stack-trace. Other provider API errors exit `8` (distinct, non-swallowed).
 
 ## [0.7.0] — 2026-06-01
 
@@ -91,7 +91,7 @@ All notable changes to this project are documented in this file. Format follows 
 
 ### Fixed (breaking-class)
 
-- **Codex shim PATH no longer pollutes interactive shells.** v0.4.x emitted an unconditional `export PATH="<shim-dir>:$PATH"` into `~/.zprofile` and `~/.bash_profile`, which meant *every* interactive Terminal/IDE/Spotlight/cron shell on the host went through `rtk` for `ls`/`grep`/`find`/etc. Cascading shim invocations under macOS could hang the system enough that the operator had to force-restart (TUNE-0317 dogfood incident 2026-05-27). The emitted block is now gated on a Codex-only PATH substring (`/Users/.../.codex/tmp/arg0/codex-arg0XXX`) that Codex injects into the child shell's PATH *before* sourcing rc files — empirically the only reliable rc-time marker, since Codex sets `$CODEX_CI` only after rc completes. Interactive shells never see that marker, so the export is a no-op for them.
+- **Codex shim PATH no longer pollutes interactive shells.** v0.4.x emitted an unconditional `export PATH="<shim-dir>:$PATH"` into `~/.zprofile` and `~/.bash_profile`, which meant *every* interactive Terminal/IDE/Spotlight/cron shell on the host went through `rtk` for `ls`/`grep`/`find`/etc. Cascading shim invocations under macOS could hang the system enough that the operator had to force-restart (dogfood incident 2026-05-27). The emitted block is now gated on a Codex-only PATH substring (`/Users/.../.codex/tmp/arg0/codex-arg0XXX`) that Codex injects into the child shell's PATH *before* sourcing rc files — empirically the only reliable rc-time marker, since Codex sets `$CODEX_CI` only after rc completes. Interactive shells never see that marker, so the export is a no-op for them.
 - **Upgrade migration.** `coworker rtk enable` now detects a stale v0.4.x unconditional block and rewrites it in place to the v0.5.0 gated form. Operators upgrading via `pipx upgrade coworker && coworker rtk enable` get the fix without a manual `disable + enable` cycle.
 - Removed dead `_build_path_value()` helper from `rtk_codex_shims.py` (relic from a never-shipped codex-config injection design that the top-of-module docstring still described inaccurately).
 
