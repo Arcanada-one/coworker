@@ -37,5 +37,4 @@ jobs:
       - run: python -m pip install --upgrade "pip>=26.1"
       - run: pip install -e .
       - run: pip install pip-audit
-      # CVE-2026-3219: pip vuln без fix upstream (отслеживаем; ignore до patch).
-      - run: pip-audit --ignore-vuln CVE-2026-3219
+      - run: pip-audit
