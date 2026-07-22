@@ -23,6 +23,7 @@ Coworker ships a thin convenience plugin around upstream RTK:
 - `coworker rtk enable`  — register a marker-tagged RTK hook in `~/.claude/settings.json` **AND** (since v0.4.0) install a PATH-shim layer at `~/.local/share/rtk-shims/` for Codex CLI parity, with marker-fenced PATH-injection blocks in `~/.zprofile` and `~/.bash_profile`.
 - `coworker rtk disable` — remove the hook **AND** the shim directory **AND** the PATH-injection blocks byte-for-byte.
 - `coworker rtk status`  — report rtk binary state + per-agent parity matrix (Claude / Cursor / Codex).
+- `coworker rtk economics` — combined «spending (ccusage) vs savings (RTK)» view; a resilient replacement for the upstream `rtk cc-economics` subcommand (which crashes on the current ccusage JSON schema).
 
 The plugin **never** installs binaries itself. Operator picks the install
 vector. The hook is added with a private marker (`_managed_by:
@@ -178,6 +179,38 @@ Prints:
 
 ---
 
+## Economics: spending vs savings
+
+```bash
+coworker rtk economics              # human-readable text
+coworker rtk economics --format json
+```
+
+The consolidated «what Claude Code costs (ccusage) vs what RTK saved»
+view. It exists because the upstream `rtk cc-economics` subcommand
+aborts against the current `ccusage` JSON schema — ccusage renamed each
+monthly row's key from `month` to `period`, and RTK's parser
+hard-requires `month`.
+
+`coworker rtk economics` rebuilds the same view natively from the two
+data sources that still work:
+
+- **Spending** — `ccusage monthly --json` (prefers a globally-installed
+  `ccusage`, else `npx ccusage@latest`), parsed with a tolerant period
+  key: `month` → `period` → `date` → index. Both the current and legacy
+  ccusage schema parse.
+- **Savings** — `rtk gain --format json` (`total_saved`,
+  `avg_savings_pct`, input/output totals).
+
+**Fail-soft.** If ccusage is missing/offline the savings half still
+prints (with a notice on stderr), and vice-versa. Exit code is `0`
+whenever at least one half rendered; `1` only when both data sources are
+unavailable. `--format json` emits `{spending, savings, degraded}` for
+programmatic use — `degraded` is `true` when either half is missing, and
+the missing half is `null`.
+
+---
+
 ## Signal / bulk passthrough (v0.6.0+)
 
 The signal-command inflation problem described in § Known limitations
@@ -275,8 +308,11 @@ passthrough store (CRUD state is durable across enable/disable cycles).
 - **`rtk cc-economics` is broken on current `ccusage`.** Other rtk
   subcommands (`gain`, `discover`, `session`) work fine; `cc-economics`
   crashes with `Invalid JSON structure for monthly data: missing field
-  'month'`. Filed upstream / in-coworker backlog. Workaround: read
-  `rtk gain` + `ccusage` separately for now.
+  'month'` because ccusage renamed the monthly-row key `month`→`period`.
+  The upstream Rust parser fix is tracked as a feature-request to
+  rtk-ai/rtk. **Use `coworker rtk economics` instead** — it rebuilds the
+  consolidated «spending vs savings» view natively (see below), tolerant
+  to the schema drift and fail-soft on a missing data half.
 - **Codex CLI prompts on first session after enable.** See
   § «Codex CLI: one-time hook approval» above. Not a regression — a
   feature of Codex's hook-trust system.

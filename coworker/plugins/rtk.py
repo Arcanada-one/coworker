@@ -560,6 +560,206 @@ def _rtk_telemetry_state(binary: str | None) -> str:
     return "enabled" if m.group(1).lower() == "yes" else "disabled"
 
 
+# ---------- cc-economics: resilient combined spending-vs-savings view ----------
+#
+# Upstream `rtk cc-economics` aborts on the current `ccusage` JSON schema:
+# ccusage renamed each monthly row's key from `month` to `period`, and RTK's
+# Rust deserializer hard-requires `month`. The RTK binary lives in an upstream
+# repo we do not control, so coworker reconstructs the same combined view
+# natively from the two data sources that DO work — `rtk gain --format json`
+# (savings) and `ccusage monthly --json` (spending) — tolerant to both the
+# current and legacy ccusage schema and degrading gracefully when either half
+# is unavailable.
+
+
+def _period_key(row: dict, index: int) -> str:
+    """Return a stable period label for a ccusage monthly row.
+
+    Tolerant to the ccusage schema drift: current ccusage keys rows by
+    ``period``; older releases used ``month``; some breakdowns use ``date``.
+    Falls back to an index-based label so a row missing all three never
+    raises (this is the exact failure the upstream binary hits).
+    """
+    for field in ("month", "period", "date"):
+        val = row.get(field)
+        if val:
+            return str(val)
+    return f"#{index}"
+
+
+def _parse_ccusage(payload: dict) -> dict:
+    """Normalise a ``ccusage monthly --json`` payload into a schema-neutral
+    summary: ``{rows: [{period, cost, tokens}], total_cost, total_tokens}``.
+
+    Uses the top-level ``totals`` block when present; otherwise sums the rows.
+    Missing per-row cost/token fields default to 0 rather than raising.
+    """
+    monthly = payload.get("monthly") or []
+    rows = []
+    for i, row in enumerate(monthly):
+        rows.append(
+            {
+                "period": _period_key(row, i),
+                "cost": row.get("totalCost") or 0,
+                "tokens": row.get("totalTokens") or 0,
+            }
+        )
+    totals = payload.get("totals") or {}
+    total_cost = totals.get("totalCost")
+    total_tokens = totals.get("totalTokens")
+    if total_cost is None:
+        total_cost = sum(r["cost"] for r in rows)
+    if total_tokens is None:
+        total_tokens = sum(r["tokens"] for r in rows)
+    return {"rows": rows, "total_cost": total_cost, "total_tokens": total_tokens}
+
+
+def _parse_gain(payload: dict) -> dict:
+    """Normalise a ``rtk gain --format json`` payload into a flat summary.
+
+    Missing fields default to 0 — the command stays fail-soft even against a
+    future/partial gain schema.
+    """
+    summary = payload.get("summary") or {}
+    return {
+        "total_saved": summary.get("total_saved") or 0,
+        "avg_savings_pct": summary.get("avg_savings_pct") or 0,
+        "total_input": summary.get("total_input") or 0,
+        "total_output": summary.get("total_output") or 0,
+    }
+
+
+def _run_rtk_gain_json() -> dict | None:
+    """Run ``rtk gain --format json`` and return parsed JSON, or None.
+
+    Fail-soft: missing binary, timeout, non-zero exit, or unparseable output
+    all yield None (the caller degrades gracefully).
+    """
+    binary = _rtk_binary_path()
+    if binary is None:
+        return None
+    try:
+        r = subprocess.run(
+            [binary, "gain", "--format", "json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def _run_ccusage_json() -> dict | None:
+    """Run ccusage's monthly JSON export and return parsed JSON, or None.
+
+    Prefers a globally-installed ``ccusage`` binary; otherwise falls back to
+    ``npx ccusage@latest`` (matching RTK's own auto-fetch behaviour). Fail-soft
+    on every error path so a missing/offline ccusage degrades to savings-only.
+    """
+    ccusage = shutil.which("ccusage")
+    if ccusage is not None:
+        argv = [ccusage, "monthly", "--json"]
+    else:
+        npx = shutil.which("npx")
+        if npx is None:
+            return None
+        argv = [npx, "--yes", "ccusage@latest", "monthly", "--json"]
+    try:
+        r = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def _fmt_int(n) -> str:
+    """Thousands-separated integer for human-readable text output."""
+    try:
+        return f"{int(n):,}"
+    except (TypeError, ValueError):
+        return str(n)
+
+
+def cmd_economics(args: argparse.Namespace | None = None) -> int:
+    """Print the combined «spending (ccusage) vs savings (RTK)» view.
+
+    Resilient replacement for the upstream ``rtk cc-economics`` subcommand,
+    which aborts on the current ccusage JSON schema. Reconstructs both halves
+    from ``ccusage monthly --json`` and ``rtk gain --format json``.
+
+    Fail-soft: if one half is unavailable the other still renders (with a
+    degradation notice). Exit 0 whenever at least one half rendered; exit 1
+    only when BOTH halves are unavailable.
+    """
+    fmt = getattr(args, "format", "text") or "text"
+
+    raw_spend = _run_ccusage_json()
+    raw_gain = _run_rtk_gain_json()
+    spending = _parse_ccusage(raw_spend) if raw_spend is not None else None
+    savings = _parse_gain(raw_gain) if raw_gain is not None else None
+    degraded = spending is None or savings is None
+
+    if fmt == "json":
+        doc = {"spending": spending, "savings": savings, "degraded": degraded}
+        print(json.dumps(doc, indent=2))
+        return 1 if (spending is None and savings is None) else 0
+
+    # text format
+    print("RTK economics — spending (ccusage) vs savings (RTK)")
+    print("---------------------------------------------------")
+
+    if spending is not None:
+        print("\nSpending (ccusage):")
+        for row in spending["rows"]:
+            print(f"  {row['period']:<10}  ${float(row['cost']):>12,.2f}  {_fmt_int(row['tokens']):>18} tok")
+        print(f"  {'TOTAL':<10}  ${float(spending['total_cost']):>12,.2f}  "
+              f"{_fmt_int(spending['total_tokens']):>18} tok")
+    else:
+        print(
+            "\n[coworker rtk] NOTE: ccusage spending data unavailable "
+            "(ccusage missing/offline or JSON unparseable) — showing savings only.",
+            file=sys.stderr,
+        )
+
+    if savings is not None:
+        print("\nSavings (rtk gain):")
+        print(f"  tokens saved:   {_fmt_int(savings['total_saved'])}")
+        print(f"  avg savings:    {float(savings['avg_savings_pct']):.2f}%")
+        print(f"  input / output: {_fmt_int(savings['total_input'])} / {_fmt_int(savings['total_output'])}")
+    else:
+        print(
+            "\n[coworker rtk] NOTE: rtk gain savings data unavailable "
+            "(rtk missing or errored) — showing spending only.",
+            file=sys.stderr,
+        )
+
+    if spending is None and savings is None:
+        print(
+            "[coworker rtk] ERROR: both ccusage and rtk gain are unavailable; "
+            "nothing to report.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 # ---------- argparse registration ----------
 
 
@@ -610,6 +810,25 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     p_status = rtk_sub.add_parser("status", help="Report rtk binary + hook state.")
     _add_config_path(p_status)
     p_status.set_defaults(rtk_handler=cmd_status)
+
+    p_econ = rtk_sub.add_parser(
+        "economics",
+        help="Combined spending (ccusage) vs savings (RTK) view — resilient to ccusage schema drift.",
+        description=(
+            "Reconstructs the consolidated economics view from `rtk gain --format json` and "
+            "`ccusage monthly --json`, tolerant to the ccusage `month`->`period` rename that "
+            "breaks the upstream `rtk cc-economics` subcommand. Degrades gracefully if either "
+            "data source is unavailable."
+        ),
+    )
+    p_econ.add_argument(
+        "-f",
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text).",
+    )
+    p_econ.set_defaults(rtk_handler=cmd_economics)
 
     # Signal/bulk passthrough allowlist subcommand tree.
     rtk_passthrough.register_passthrough(rtk_sub)
