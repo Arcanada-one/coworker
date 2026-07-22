@@ -488,6 +488,57 @@ def test_operator_non_guard_bash_hook_preserved_on_enable(tmp_path):
     assert any(c.endswith("rtk-signal-guard.sh") for c in all_cmds), "guard must be added"
 
 
+def test_unmarked_legacy_guard_repeated_enable_never_stacks_duplicate(tmp_path, capsys):
+    """Regression: a pre-existing *unmarked* guard entry followed by repeated
+    ``enable`` must converge to exactly one guard hook — counted by command
+    identity, not by ``_managed_by`` marker.
+
+    Marker-only counting is blind to unmarked guards, so an enable path that
+    deduped by marker alone would let an unmarked entry survive and stack a
+    second (marked) guard on top: 1 -> 2 -> 3 across enables, with RTK then
+    running multiple times per Bash call. This asserts the guard-identity
+    dedupe holds across three enables and that ``status`` reports enabled.
+    """
+    settings_path = tmp_path / "settings.json"
+    legacy = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "matcher": "Bash",
+                    "hooks": [
+                        {"type": "command", "command": "/old/path/rtk-signal-guard.sh"}
+                    ],
+                }
+            ]
+        }
+    }
+    _write_settings(settings_path, legacy)
+
+    with patch.object(rtk, "_rtk_binary_path", return_value="/usr/local/bin/rtk"), \
+         patch.object(rtk, "_rtk_version", return_value="0.40.0"):
+        assert rtk.cmd_enable(config_path=settings_path) == 0
+        assert rtk.cmd_enable(config_path=settings_path) == 0
+        assert rtk.cmd_enable(config_path=settings_path) == 0
+        capsys.readouterr()  # drain enable output before capturing status
+        assert rtk.cmd_status(config_path=settings_path) == 0
+
+    data = json.loads(settings_path.read_text())
+    guard_cmds = [
+        h.get("command")
+        for entry in data["hooks"]["PreToolUse"]
+        for h in entry.get("hooks", [])
+        if rtk._is_guard_command(h.get("command"))
+    ]
+    assert len(guard_cmds) == 1, (
+        f"unmarked legacy guard + enable x3 must dedupe to one guard hook, got {guard_cmds}"
+    )
+    assert guard_cmds[0].endswith("rtk-signal-guard.sh")
+    # The surviving block carries the canonical marker.
+    assert _count_rtk_markers(data) == 1
+    # status reports the hook as enabled, not a false disabled.
+    assert "RTK hook:    enabled" in capsys.readouterr().out
+
+
 # --- TUNE-0279 Phase A — UX-pass tests --------------------------------------
 
 
