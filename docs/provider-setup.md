@@ -53,6 +53,32 @@ If the resolved name is not a key in `providers.yaml`, `coworker` prints `unknow
 - **Default model:** `gpt-5-mini`. Useful when you specifically need OpenAI's quality/feature set; usually the most expensive option in this list.
 - **Prefix cache:** automatic on supported models.
 
+## Scoped credentials via `key_command`
+
+An env var holds the key for the whole session and is inherited by every child
+process. If you keep keys in a secret store, a provider can instead declare a
+`key_command` — coworker runs it and uses its stdout (stripped) as the API key,
+fetched fresh on each call:
+
+```yaml
+deepseek:
+  base_url: https://api.deepseek.com/v1
+  env_key: DEEPSEEK_API_KEY     # used only if key_command is unset (fallback)
+  key_command: vault kv get -field=api_key secret/coworker/deepseek
+  default_model: deepseek-v4-flash
+```
+
+This is the same indirection git, docker, and `aws credential_process` use — point
+it at HashiCorp Vault, `pass`, `op` (1Password), or any command that prints a key.
+coworker never depends on the store itself.
+
+- Precedence: `key_command` wins over `env_key` when both are set.
+- The command runs with `shell=False` (arguments are split like a shell would, but
+  no pipes/globbing) — wrap complex logic in a script and call that.
+- Failure is loud: a non-zero exit, empty output, or timeout prints a `[coworker]`
+  error and exits `1` (never a silent empty key).
+- Timeout: `COWORKER_KEY_COMMAND_TIMEOUT` seconds (default `10`).
+
 ## Custom providers
 
 Anything that exposes an OpenAI-compatible `chat/completions` endpoint can be added as a new section in `providers.yaml`:

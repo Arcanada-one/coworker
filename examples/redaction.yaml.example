@@ -1,0 +1,21 @@
+# Copy to $XDG_CONFIG_HOME/coworker/redaction.yaml (default: ~/.config/coworker/redaction.yaml)
+# to ADD your own patterns on top of the built-ins.
+#
+# Redaction runs only on opt-in Layer 2 corpus blobs (COWORKER_LOG_CORPUS=1): matched
+# secret shapes are replaced with [REDACTED:<name>] before the blob is hashed and written.
+# Built-in patterns (always applied) cover sk-/gsk_ API keys, Bearer tokens, AWS AKIA
+# keys, PEM private-key blocks, and generic api_key/token/secret/password assignments.
+# Set COWORKER_NO_REDACT=1 to disable redaction entirely (deliberate raw-eval capture).
+#
+# Each entry is a mapping with `name` (the [REDACTED:<name>] label) and `pattern`
+# (a Python `re` regular expression). A bad regex or malformed entry is skipped with a
+# stderr warning; the built-ins still apply.
+
+- name: internal-ticket
+  pattern: 'ACME-[0-9]{4,}'
+
+- name: slack-token
+  pattern: 'xox[baprs]-[A-Za-z0-9-]{10,}'
+
+- name: gh-pat
+  pattern: 'ghp_[A-Za-z0-9]{36}'

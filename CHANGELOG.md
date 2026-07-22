@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **Scoped credentials via `key_command`.** A provider in `providers.yaml` may now declare `key_command: <cmd>`; coworker runs it (shell=False, timeout-bounded via `COWORKER_KEY_COMMAND_TIMEOUT`, default 10s) and uses its stripped stdout as the API key, fetched fresh per call. This is the git/docker/`aws credential_process` pattern — wire it to Vault, `pass`, 1Password, or any secret store without coworker depending on it. `key_command` takes precedence over `env_key` (which remains the default and fallback); a non-zero exit, empty output, or timeout fails loud with exit `1`.
+- **Automatic redaction of opt-in corpus blobs.** When `COWORKER_LOG_CORPUS=1`, the request body and response are now swept for common secret shapes (sk-/gsk_ API keys, `Bearer` tokens, AWS `AKIA` keys, PEM private-key blocks, and `api_key`/`token`/`secret`/`password` assignments) and replaced with `[REDACTED:<label>]` **before** the blob is hashed and written — so secrets in delegated files do not land on disk in cleartext, and dedup/`debug` keep working on the scrubbed content. Add patterns via `~/.config/coworker/redaction.yaml`; disable with `COWORKER_NO_REDACT=1`.
+
 ## [0.8.2] — 2026-07-08
 
 ### Changed
