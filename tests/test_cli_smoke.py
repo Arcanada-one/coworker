@@ -15,8 +15,8 @@ def _run(*args: str) -> subprocess.CompletedProcess:
 
 def test_top_help_lists_all_subcommands():
     r = _run("--help")
-    assert "{ask,write,stats,debug,rtk}" in r.stdout
-    for sub in ("ask", "write", "stats", "debug", "rtk"):
+    assert "{ask,write,stats,debug,plugins,rtk}" in r.stdout
+    for sub in ("ask", "write", "stats", "debug", "plugins", "rtk"):
         assert sub in r.stdout
 
 

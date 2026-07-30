@@ -29,6 +29,17 @@ import tempfile
 from pathlib import Path
 
 from . import rtk_codex_shims, rtk_cursor_hook, rtk_passthrough
+from .manifest import PluginManifest
+
+# Plugin manifest — the declarative contract the registry discovers (see
+# coworker/plugins/registry.py). `requires="rtk"` drives the PATH-presence
+# status shown by `coworker plugins list`.
+MANIFEST = PluginManifest(
+    name="rtk",
+    summary="Opt-in Rust Token Killer (RTK) integration — compact bulk tool output.",
+    version="1.0",
+    requires="rtk",
+)
 
 # Marker contract — keep these as the public stable surface; tests pin both.
 COWORKER_RTK_MARKER = "_managed_by"
@@ -615,3 +626,8 @@ def dispatch(args: argparse.Namespace) -> int:
     if cfg is not None:
         kwargs["config_path"] = Path(cfg)
     return handler(args, **kwargs) if kwargs else handler(args)
+
+
+# Plugin lifecycle hook consumed by `coworker plugins install rtk`. Prints
+# instructions only — coworker never runs a network installer (supply-chain).
+install = cmd_install

@@ -411,8 +411,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_debug = sub.add_parser("debug", help="Inspect a corpus blob by hash prefix.")
     p_debug.add_argument("--hash", required=True, help="Hash prefix (min 2 chars).")
 
-    from .plugins import rtk
-    rtk.register(sub)
+    # Plugins: the `plugins` meta-command plus every discovered plugin's own
+    # subcommand. Discovery is generic — adding a plugin module needs no edit
+    # here (see coworker/plugins/registry.py).
+    from .plugins import registry
+    registry.register_meta(sub)
+    registry.register_all(sub)
 
     return ap
 
@@ -429,9 +433,12 @@ def main() -> int:
         return cmd_stats(args)
     if args.subcommand == "debug":
         return cmd_debug(args)
-    if args.subcommand == "rtk":
-        from .plugins import rtk
-        return rtk.dispatch(args)
+
+    from .plugins import registry
+    if args.subcommand == "plugins":
+        return registry.cmd_plugins(args)
+    if registry.is_plugin(args.subcommand):
+        return registry.dispatch(args)
     return 1
 
 

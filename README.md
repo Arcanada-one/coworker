@@ -218,6 +218,16 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 
 ## Optional plugins
 
+Plugins are self-contained, optional subcommands discovered automatically from the `coworker.plugins` package. Manage them with the `plugins` meta-command:
+
+```text
+coworker plugins list                 # enumerate discovered plugins (name, version, status)
+coworker plugins list --format json   # machine-readable form
+coworker plugins install <name>       # run a plugin's install hook (prints instructions; never runs an installer)
+```
+
+Each plugin also keeps its own top-level subcommand (e.g. `coworker rtk enable`). See [`docs/plugins.md`](docs/plugins.md) for the plugin contract and how to author one.
+
 - **`coworker rtk`** — opt-in integration with [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk). Default-off. `coworker rtk enable` (since v0.6.0) installs a two-step `PreToolUse` chain: a vendored passthrough guard that short-circuits 13 default signal-bearing git/gh commands (`git push`, `git status`, `gh release`, …) so they execute against the real binary without RTK rewriting, then the standard RTK hook for everything else. CRUD surface: `coworker rtk passthrough add|list|remove`. See [`docs/rtk-plugin.md`](docs/rtk-plugin.md) § Signal / bulk passthrough for the full default allowlist and effectiveness table. One-time Codex hook approval prompt on first session after enable.
 
 ### Runtime parity
@@ -237,6 +247,7 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 - [`docs/configuration.md`](docs/configuration.md)
 - [`docs/logging-privacy.md`](docs/logging-privacy.md)
 - [`docs/claude-code-integration.md`](docs/claude-code-integration.md)
+- [`docs/plugins.md`](docs/plugins.md)
 - [`docs/rtk-plugin.md`](docs/rtk-plugin.md)
 - [`docs/release-verification.md`](docs/release-verification.md)
 - [`docs/troubleshooting.md`](docs/troubleshooting.md)
