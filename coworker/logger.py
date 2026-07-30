@@ -122,7 +122,12 @@ def log_call(
         }
 
         if os.environ.get("COWORKER_LOG_CORPUS") == "1":
-            payload, blob_hash = build_corpus_payload(user_messages, response_text)
+            corpus_messages, corpus_response = user_messages, response_text
+            if os.environ.get("COWORKER_NO_REDACT") != "1":
+                from .redaction import redact_payload
+
+                corpus_messages, corpus_response = redact_payload(user_messages, response_text)
+            payload, blob_hash = build_corpus_payload(corpus_messages, corpus_response)
             write_blob(payload, blob_hash, blobs_root=blobs_root)
             record["coworker.corpus_hash"] = blob_hash
 

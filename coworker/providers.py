@@ -5,8 +5,12 @@ chat-completions API; only base_url and env_key differ.
 """
 
 import os
+import shlex
+import subprocess
 import sys
 import time
+
+_KEY_COMMAND_TIMEOUT_DEFAULT = 10.0
 
 
 def resolve_provider_and_model(
@@ -63,15 +67,75 @@ def resolve_fallback_provider(
     return fb_name, fb_cfg, fb_model
 
 
-def make_client(prov_cfg: dict):
-    """Construct an OpenAI client pointed at the provider's base_url."""
-    from openai import OpenAI
+def _key_command_timeout() -> float:
+    """Timeout (seconds) for a key_command run; COWORKER_KEY_COMMAND_TIMEOUT, else 10s.
+
+    A non-numeric / non-positive override is ignored (falls back to the default) so
+    a fat-fingered env var can never make credential resolution hang or crash.
+    """
+    raw = os.environ.get("COWORKER_KEY_COMMAND_TIMEOUT")
+    if raw is None:
+        return _KEY_COMMAND_TIMEOUT_DEFAULT
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return _KEY_COMMAND_TIMEOUT_DEFAULT
+    return val if val > 0 else _KEY_COMMAND_TIMEOUT_DEFAULT
+
+
+def resolve_api_key(prov_cfg: dict) -> str:
+    """Resolve a provider API key: `key_command` (scoped, call-time) else `env_key`.
+
+    When `key_command` is set on the provider, coworker runs it (shell=False via
+    shlex.split, timeout-bounded) and uses its stripped stdout as the key — this
+    is the git/docker/aws-`credential_process` pattern that lets the operator wire
+    a secret store (`vault kv get …`, `pass`, `op`, …) without coworker depending
+    on any of them (Auth Arcana Mandate: scoped credentials, no long-lived env
+    secret). A non-zero exit, timeout, or empty stdout fails loud (exit 1) — never
+    a silent empty key. When `key_command` is absent, the historical `env_key`
+    path is used unchanged. `key_command` wins when both are present.
+    """
+    key_command = prov_cfg.get("key_command")
+    if key_command:
+        try:
+            proc = subprocess.run(
+                shlex.split(key_command),
+                capture_output=True,
+                text=True,
+                timeout=_key_command_timeout(),
+            )
+        except subprocess.TimeoutExpired:
+            print(
+                f"[coworker] key_command timed out after "
+                f"{_key_command_timeout()}s: {key_command!r}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        except (OSError, ValueError) as exc:
+            print(f"[coworker] key_command failed to run ({exc}): {key_command!r}", file=sys.stderr)
+            sys.exit(1)
+        if proc.returncode != 0:
+            detail = proc.stderr.strip() or f"exit {proc.returncode}"
+            print(f"[coworker] key_command failed ({detail}): {key_command!r}", file=sys.stderr)
+            sys.exit(1)
+        api_key = proc.stdout.strip()
+        if not api_key:
+            print(f"[coworker] key_command produced no output: {key_command!r}", file=sys.stderr)
+            sys.exit(1)
+        return api_key
 
     api_key = os.environ.get(prov_cfg["env_key"])
     if not api_key:
         print(f"[coworker] env var '{prov_cfg['env_key']}' not set", file=sys.stderr)
         sys.exit(1)
-    return OpenAI(api_key=api_key, base_url=prov_cfg["base_url"])
+    return api_key
+
+
+def make_client(prov_cfg: dict):
+    """Construct an OpenAI client pointed at the provider's base_url."""
+    from openai import OpenAI
+
+    return OpenAI(api_key=resolve_api_key(prov_cfg), base_url=prov_cfg["base_url"])
 
 
 def classify_api_error(exc: Exception) -> str | None:

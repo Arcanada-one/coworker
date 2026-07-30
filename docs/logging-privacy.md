@@ -49,6 +49,35 @@ If you set `COWORKER_LOG_CORPUS=1`, `coworker` additionally serialises the **ful
 
 The system prompt is NOT stored verbatim in the blob — only `system_hash` (16-char sha256 prefix) makes it into the JSONL line.
 
+### Automatic redaction
+
+Before a blob is hashed and written, `coworker` sweeps the request body and the
+response for common secret shapes and replaces each with `[REDACTED:<label>]`.
+Built-in patterns cover:
+
+| Label         | Matches                                                       |
+| ------------- | ------------------------------------------------------------- |
+| `api-key`     | `sk-…` (OpenAI/DeepSeek/Moonshot/OpenRouter), `gsk_…` (Groq)   |
+| `bearer`      | `Bearer <token>` HTTP authorization values (scheme word kept) |
+| `aws-key`     | AWS `AKIA…` access-key IDs                                     |
+| `private-key` | `-----BEGIN … PRIVATE KEY----- … -----END … -----` PEM blocks  |
+| `assignment`  | `api_key`/`token`/`secret`/`password` `= <value>` (name kept)  |
+
+Because redaction happens **before** the sha256 hash, dedup and `coworker debug`
+keep working — they operate on the redacted content, so even replayed blobs are
+scrubbed.
+
+- **Add your own patterns:** copy `examples/redaction.yaml.example` to
+  `$XDG_CONFIG_HOME/coworker/redaction.yaml` (list of `{name, pattern}`, `pattern`
+  is a Python `re` regex). A bad regex or malformed entry is skipped with a warning;
+  built-ins still apply.
+- **Disable redaction:** `export COWORKER_NO_REDACT=1` — stores the raw body (use
+  only for deliberate eval capture on non-secret data).
+
+Redaction is **best-effort defence-in-depth**, not a guarantee. It errs toward
+over-redaction, but it does not replace the rule below: don't enable corpus logging
+on files that contain secrets in the first place.
+
 ### When to enable
 
 - Reproducing a flaky or surprising model output. `coworker debug --hash <prefix>` reads the blob back.
@@ -70,7 +99,7 @@ Re-running with `COWORKER_LOG_CORPUS=1` will recreate the directory. Removing th
 
 ## What `coworker` does NOT log
 
-- API keys (only the *name* of the env var that held the key, via `providers.yaml.<provider>.env_key`).
+- API keys. Tier 1 records only the *name* of the env var (`providers.yaml.<provider>.env_key`); a `key_command` key is fetched at call time, held in memory, and never logged.
 - Raw HTTP requests / responses beyond what tier 2 captures.
 - The system prompt verbatim (only its 16-char sha256 prefix).
 
@@ -78,4 +107,4 @@ Re-running with `COWORKER_LOG_CORPUS=1` will recreate the directory. Removing th
 
 Anything you send. The provider's TOS / privacy policy applies. `coworker` doesn't proxy through any Arcanada-operated infrastructure — your API key talks directly to the provider's `base_url`.
 
-If you don't want a particular file's contents going to a particular vendor: don't pass `--paths <that-file>` with `--provider <that-vendor>`. There is no list of automatic redactions.
+If you don't want a particular file's contents going to a particular vendor: don't pass `--paths <that-file>` with `--provider <that-vendor>`. (Automatic redaction, above, scrubs secret *shapes* from the local tier-2 blob — it does **not** stop the file's contents from reaching the provider you called.)

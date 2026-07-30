@@ -5,6 +5,19 @@
 # Pricing is per 1M tokens in USD. cache_input applies to providers that bill prefix-cache reads at a discount.
 # Set pricing: null to silence cost tracking for a provider.
 #
+# Scoped credentials (optional): instead of a long-lived env var, a provider MAY declare
+#   key_command: <command>
+# coworker runs it (shell=False) and uses its stdout (stripped) as the API key, fetched
+# fresh per call. This is the git/docker/aws-credential_process pattern — point it at any
+# secret store without coworker depending on it. key_command takes precedence over env_key;
+# a non-zero exit / empty output / timeout fails loud. Timeout: COWORKER_KEY_COMMAND_TIMEOUT
+# (seconds, default 10). Example:
+#   deepseek:
+#     base_url: https://api.deepseek.com/v1
+#     env_key: DEEPSEEK_API_KEY                                  # fallback if key_command unset
+#     key_command: vault kv get -field=api_key secret/coworker/deepseek
+#     default_model: deepseek-v4-flash
+#
 # Balance-exhausted handling (TUNE-0468): if a provider returns HTTP 402 (or an
 # insufficient-balance/credit/quota-shaped error) on a chat-completions call,
 # `ask`/`write` print a top-up message to stderr and exit 7. Any other API

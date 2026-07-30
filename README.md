@@ -209,7 +209,8 @@ Every override writes `coworker.gate_override: true` and `coworker.gate_overridd
 - Profiles bind a system prompt to a default provider + token budget. Switch with `--profile`.
 - Provider resolution: `--provider` flag → `profile.recommended_provider` → `$COWORKER_DEFAULT_PROVIDER` → `moonshot`. For DeepSeek-first installs, set `COWORKER_DEFAULT_PROVIDER=deepseek`; profile recommendations still take precedence over that fallback.
 - Pass `--no-log` to skip the JSONL write for a single call. Set `COWORKER_NO_LOG=1` to disable globally.
-- Corpus logging (the actual messages sent to the model) is **off by default**. Set `COWORKER_LOG_CORPUS=1` only if you understand what gets persisted to disk — see [`docs/logging-privacy.md`](docs/logging-privacy.md).
+- Corpus logging (the actual messages sent to the model) is **off by default**. Set `COWORKER_LOG_CORPUS=1` only if you understand what gets persisted to disk — see [`docs/logging-privacy.md`](docs/logging-privacy.md). When enabled, corpus blobs are swept for common secret shapes and redacted before write; add patterns via `~/.config/coworker/redaction.yaml`, disable with `COWORKER_NO_REDACT=1`.
+- Scoped credentials: instead of an `env_key`, a provider may set `key_command` to fetch its API key from a secret store (Vault, `pass`, 1Password) at call time — see [`docs/provider-setup.md`](docs/provider-setup.md) § Scoped credentials.
 
 ## Use with Claude Code
 

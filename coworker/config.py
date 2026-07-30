@@ -25,6 +25,7 @@ BLOBS_ROOT = STATE_DIR / "blobs" / "sha256"
 
 PROVIDERS_YAML = CONFIG_DIR / "providers.yaml"
 PROFILES_YAML = CONFIG_DIR / "profiles.yaml"
+REDACTION_YAML = CONFIG_DIR / "redaction.yaml"
 
 
 def load_providers() -> dict:
