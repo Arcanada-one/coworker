@@ -158,9 +158,17 @@ coworker does not modify in v0.4.0.
 
 ## `rtk cc-economics` crashes with «missing field 'month'»
 
-Known incompatibility between rtk 0.40.0 and current `ccusage` JSON
-schema. Other rtk subcommands (`gain`, `discover`, `session`) work
-fine. Workaround: read `rtk gain` and `ccusage` separately for now.
+The upstream `rtk cc-economics` subcommand aborts against the current
+`ccusage` JSON schema: ccusage renamed each monthly row's key from
+`month` to `period`, and RTK's parser hard-requires `month`. Other rtk
+subcommands (`gain`, `discover`, `session`) are unaffected.
+
+**Fix:** run `coworker rtk economics` instead. It reconstructs the same
+consolidated «spending (ccusage) vs savings (RTK)» view natively, is
+tolerant to the `month`→`period` rename (and the older `month` schema),
+and degrades gracefully — if ccusage or `rtk gain` is unavailable it
+still prints whatever half it can. Add `--format json` for a structured
+`{spending, savings, degraded}` payload. See `docs/rtk-plugin.md`.
 
 ## Still stuck
 
