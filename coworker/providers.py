@@ -132,10 +132,18 @@ def resolve_api_key(prov_cfg: dict) -> str:
 
 
 def make_client(prov_cfg: dict):
-    """Construct an OpenAI client pointed at the provider's base_url."""
+    """Construct an OpenAI client pointed at the provider's base_url.
+
+    The credential is resolved before the SDK import: importing first means an
+    absent `openai` package masks a credential fault, so a configuration
+    problem is reported as a provider API error and the real cause stays
+    hidden.
+    """
+    api_key = resolve_api_key(prov_cfg)
+
     from openai import OpenAI
 
-    return OpenAI(api_key=resolve_api_key(prov_cfg), base_url=prov_cfg["base_url"])
+    return OpenAI(api_key=api_key, base_url=prov_cfg["base_url"])
 
 
 def classify_api_error(exc: Exception) -> str | None:
