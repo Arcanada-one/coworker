@@ -6,7 +6,7 @@ import os
 import pathlib
 import sys
 
-from .config import BLOBS_ROOT, load_providers
+from .config import BLOBS_ROOT, load_keys_env, load_providers
 from .logger import get_cached_tokens, log_call
 from .profiles import load_profile
 from .providers import (
@@ -424,6 +424,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+
+    # Provider keys live in the config dir; load them before any provider
+    # resolution so non-interactive callers are not told the key is unset.
+    load_keys_env()
 
     if args.subcommand == "ask":
         return cmd_ask(args)
