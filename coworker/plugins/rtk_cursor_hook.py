@@ -42,6 +42,16 @@ def _rtk_binary_path() -> str | None:
     return shutil.which("rtk")
 
 
+def _cursor_agent_path() -> str | None:
+    """Absolute path to the cursor-agent binary on PATH, else None.
+
+    Used by `coworker rtk status` to warn when the hook is registered but
+    Cursor CLI itself is absent — the hook then has no effect and the
+    operator would otherwise overestimate token reduction.
+    """
+    return shutil.which("cursor-agent")
+
+
 def _hook_command() -> str:
     rtk = _rtk_binary_path()
     return f"{rtk} hook cursor" if rtk else "rtk hook cursor"
@@ -142,4 +152,5 @@ def status() -> dict:
         "hooks_file": str(CURSOR_HOOKS),
         "hook_present": any(_is_rtk_entry(e) for e in _entries(data)),
         "event": HOOK_EVENT,
+        "agent_detected": _cursor_agent_path() is not None,
     }
