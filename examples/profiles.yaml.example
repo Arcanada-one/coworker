@@ -18,6 +18,14 @@
 # The hop is single-flight (at most one). Optional `fallback_model` pins the
 # model sent to the fallback provider (defaults to that provider default_model).
 # Omitting `fallback_provider` keeps the pre-TUNE-0132 fail-loud behavior.
+#
+# Optional `max_retries` / `retry_base_delay`: global retry policy with
+# exponential backoff on retryable errors (429/timeout). Each provider gets
+# `1 + max_retries` attempts; the delay starts at `retry_base_delay` seconds
+# and doubles per retry. Defaults: 2 retries, 1.0s base (also settable
+# globally via COWORKER_MAX_RETRIES / COWORKER_RETRY_BASE_DELAY env vars;
+# profile keys win). `max_retries: 0` disables retries. Exhaustion fails
+# loud: stderr names the attempt count and the exit code is non-zero.
 
 doc-read:
   description: Literal documentation extraction and summarization

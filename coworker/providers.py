@@ -12,6 +12,14 @@ import time
 
 _KEY_COMMAND_TIMEOUT_DEFAULT = 10.0
 
+# Global retry policy defaults (exponential backoff on retryable errors).
+# `max_retries` counts ADDITIONAL attempts after the first one, per provider:
+# the default 2 means up to 3 attempts on the primary (and, when a fallback
+# provider is declared, up to 3 more on the fallback). Delay doubles per
+# retry: base, 2*base, 4*base, ...
+_RETRY_MAX_DEFAULT = 2
+_RETRY_BASE_DELAY_DEFAULT = 1.0
+
 
 def resolve_provider_and_model(
     args,
@@ -206,6 +214,87 @@ def classify_retryable_error(exc: Exception) -> str | None:
     return None
 
 
+def _coerce_retry_count(raw) -> int | None:
+    """Parse a max-retries value; None when unusable (negative / non-numeric)."""
+    try:
+        val = int(str(raw))
+    except (TypeError, ValueError):
+        return None
+    return val if val >= 0 else None
+
+
+def _coerce_retry_delay(raw) -> float | None:
+    """Parse a base-delay value; None when unusable. Zero is allowed (no wait)."""
+    try:
+        val = float(str(raw))
+    except (TypeError, ValueError):
+        return None
+    return val if val >= 0 else None
+
+
+def resolve_retry_policy(profile: dict | None) -> tuple[int, float]:
+    """Resolve (max_retries, base_delay_seconds) for the global retry policy.
+
+    Resolution chain (mirrors provider resolution — profile wins over env):
+    profile `max_retries` / `retry_base_delay` -> env `COWORKER_MAX_RETRIES` /
+    `COWORKER_RETRY_BASE_DELAY` -> built-in defaults (2 retries, 1.0s base).
+    An invalid value at one layer falls through to the next — a fat-fingered
+    profile or env var can never crash the call or disable fail-loud exits.
+    """
+    max_retries = None
+    base_delay = None
+    if profile:
+        max_retries = _coerce_retry_count(profile.get("max_retries"))
+        base_delay = _coerce_retry_delay(profile.get("retry_base_delay"))
+    if max_retries is None:
+        max_retries = _coerce_retry_count(os.environ.get("COWORKER_MAX_RETRIES"))
+    if base_delay is None:
+        base_delay = _coerce_retry_delay(os.environ.get("COWORKER_RETRY_BASE_DELAY"))
+    if max_retries is None:
+        max_retries = _RETRY_MAX_DEFAULT
+    if base_delay is None:
+        base_delay = _RETRY_BASE_DELAY_DEFAULT
+    return max_retries, base_delay
+
+
+def _attempt_with_retry(
+    create_fn,
+    prov_name: str,
+    max_retries: int,
+    base_delay: float,
+    sleep_fn=time.sleep,
+):
+    """Run `create_fn` with exponential-backoff retries on retryable errors.
+
+    Only errors classified retryable (429 / timeout — see
+    `classify_retryable_error`) are retried; balance (402), auth, and generic
+    errors re-raise immediately. When the retry budget is exhausted the last
+    error re-raises after a fail-loud stderr line naming the attempt count,
+    so the caller's non-zero exit path always has a clear final diagnosis.
+    """
+    attempts = max_retries + 1
+    for attempt in range(1, attempts + 1):
+        try:
+            return create_fn()
+        except Exception as exc:  # noqa: BLE001 — non-retryable re-raised below
+            if classify_retryable_error(exc) != "retryable":
+                raise
+            if attempt >= attempts:
+                print(
+                    f"[coworker] provider {prov_name} failed after {attempts} "
+                    f"attempt(s) — retry budget exhausted (last error: {exc})",
+                    file=sys.stderr,
+                )
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            print(
+                f"[coworker] provider {prov_name} retryable error "
+                f"(attempt {attempt}/{attempts}): {exc}; retrying in {delay:g}s",
+                file=sys.stderr,
+            )
+            sleep_fn(delay)
+
+
 def call_with_fallback(
     prov_name: str,
     prov_cfg: dict,
@@ -215,25 +304,43 @@ def call_with_fallback(
     create_kwargs: dict,
     *,
     client_factory=make_client,
+    sleep_fn=time.sleep,
 ):
-    """Run chat.completions.create on the primary; on a retryable (429/timeout)
-    error, hop once to the profile-declared fallback provider.
+    """Run chat.completions.create with the global retry policy; on retryable
+    (429/timeout) exhaustion, hop once to the profile-declared fallback.
 
-    Single-flight, at most ONE fallback hop (no unbounded retry loop). Only a
-    retryable error triggers the hop AND only when the profile declares a
-    valid `fallback_provider`. Balance / auth / generic errors are re-raised
-    unchanged for the caller's existing classify_api_error handling — the
-    fallback never swallows them.
+    Each provider (primary, then optional fallback) gets up to
+    `1 + max_retries` attempts with exponential backoff between attempts (see
+    `resolve_retry_policy`; profile keys `max_retries` / `retry_base_delay`,
+    env `COWORKER_MAX_RETRIES` / `COWORKER_RETRY_BASE_DELAY`). Only a
+    retryable error triggers a retry or the hop AND the hop happens only when
+    the profile declares a valid `fallback_provider` (at most ONE hop).
+    Balance / auth / generic errors are re-raised unchanged for the caller's
+    existing classify_api_error handling — retries never swallow them, and
+    an exhausted budget fails loud (stderr line naming the attempt count,
+    then re-raise so the caller exits non-zero).
 
     Returns (resp, eff_name, eff_cfg, eff_model, latency_ms). `latency_ms`
     times only the successful attempt. On the fallback hop a one-line notice
     is written to stderr so the operator sees which provider actually served.
     """
+    max_retries, base_delay = resolve_retry_policy(profile)
+    timing: dict = {}
+
+    def _timed_create(client, use_model):
+        def _create():
+            t0 = time.monotonic()
+            resp = client.chat.completions.create(model=use_model, **create_kwargs)
+            timing["latency_ms"] = (time.monotonic() - t0) * 1000
+            return resp
+        return _create
+
     client = client_factory(prov_cfg)
-    t0 = time.monotonic()
     try:
-        resp = client.chat.completions.create(model=model, **create_kwargs)
-        return resp, prov_name, prov_cfg, model, (time.monotonic() - t0) * 1000
+        resp = _attempt_with_retry(
+            _timed_create(client, model), prov_name, max_retries, base_delay, sleep_fn
+        )
+        return resp, prov_name, prov_cfg, model, timing["latency_ms"]
     except Exception as exc:  # noqa: BLE001 — re-raised unless retryable + fallback
         if classify_retryable_error(exc) != "retryable":
             raise
@@ -247,6 +354,7 @@ def call_with_fallback(
             file=sys.stderr,
         )
         fb_client = client_factory(fb_cfg)
-        t1 = time.monotonic()
-        resp = fb_client.chat.completions.create(model=fb_model, **create_kwargs)
-        return resp, fb_name, fb_cfg, fb_model, (time.monotonic() - t1) * 1000
+        resp = _attempt_with_retry(
+            _timed_create(fb_client, fb_model), fb_name, max_retries, base_delay, sleep_fn
+        )
+        return resp, fb_name, fb_cfg, fb_model, timing["latency_ms"]
