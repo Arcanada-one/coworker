@@ -139,6 +139,14 @@ def test_status_reflects_state(isolated):
     assert s["hook_present"] is True
 
 
+def test_status_reports_cursor_agent_detection(isolated, monkeypatch):
+    m = isolated["mod"]
+    monkeypatch.setattr(m, "_cursor_agent_path", lambda: "/usr/local/bin/cursor-agent")
+    assert m.status()["agent_detected"] is True
+    monkeypatch.setattr(m, "_cursor_agent_path", lambda: None)
+    assert m.status()["agent_detected"] is False
+
+
 def test_hook_command_falls_back_to_bare_when_rtk_absent(isolated, monkeypatch):
     m = isolated["mod"]
     monkeypatch.setattr(m, "_rtk_binary_path", lambda: None)

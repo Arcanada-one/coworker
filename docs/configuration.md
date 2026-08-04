@@ -37,6 +37,11 @@ Top-level dict; each key is a profile you reference with `--profile <name>`.
                                   # a retryable error (HTTP 429 or a request timeout). Single-flight,
                                   # at most one hop. Balance (402)/auth/generic errors are NOT retried.
   fallback_model: <string>        # Optional. Model sent to fallback_provider (defaults to its default_model).
+  max_retries: <int>              # Optional. Retries per provider on a retryable error (429/timeout),
+                                  # with exponential backoff. Default: 2 (i.e. up to 3 attempts).
+                                  # 0 disables retries. See "Retry policy" below.
+  retry_base_delay: <float>       # Optional. First backoff delay in seconds; doubles per retry
+                                  # (base, 2*base, 4*base, ...). Default: 1.0. 0 = no wait.
 ```
 
 Required fields: `system_prompt` and `recommended_provider`. Everything else has a fallback.
@@ -47,12 +52,34 @@ single-flight hop — the fallback is tried once; if it also fails the error pro
 that would fail identically on any provider (balance-exhausted 402, auth, malformed request)
 are never retried and surface immediately. Omit `fallback_provider` to keep fail-loud behavior.
 
+## Retry policy
+
+Every `coworker ask` / `coworker write` call applies a global retry policy on
+retryable errors (HTTP 429 rate limit or a request timeout): each provider gets
+`1 + max_retries` attempts with exponential backoff between attempts
+(`retry_base_delay`, then doubled per retry: 1s, 2s, 4s, ...). When a profile
+declares `fallback_provider`, the fallback hop happens only after the primary's
+retry budget is exhausted, and the fallback then gets its own budget.
+
+Resolution chain (profile wins over env, mirroring provider resolution):
+profile `max_retries` / `retry_base_delay` → env `COWORKER_MAX_RETRIES` /
+`COWORKER_RETRY_BASE_DELAY` → built-in defaults (`2` retries, `1.0`s base).
+Invalid values fall through to the next layer.
+
+Fail-loud guarantee: balance-exhausted (402), auth, and malformed-request
+errors are never retried. When the retry budget runs out, coworker prints
+`provider <name> failed after N attempt(s) — retry budget exhausted (last
+error: ...)` to stderr and exits non-zero (exit `8`, or `7` for balance) —
+retries never mask a hard failure.
+
 ## Environment variables
 
 | Variable                       | Effect                                                                    |
 | ------------------------------ | ------------------------------------------------------------------------- |
 | `<PROVIDER>_API_KEY`           | Per-provider API key. Required to call that provider. Name comes from `providers.yaml.<provider>.env_key`. |
 | `COWORKER_DEFAULT_PROVIDER`    | Fallback provider name when neither `--provider` nor `profile.recommended_provider` is set. Default: `moonshot`; set to `deepseek` for DeepSeek-first installs. |
+| `COWORKER_MAX_RETRIES`         | Global default for retries-per-provider on retryable errors (429/timeout). Overridden by a profile's `max_retries`. Default: `2`. |
+| `COWORKER_RETRY_BASE_DELAY`    | Global default for the first backoff delay in seconds (doubles per retry). Overridden by a profile's `retry_base_delay`. Default: `1.0`. |
 | `COWORKER_NO_LOG=1`            | Globally disable JSONL logging (also disables blob writes). |
 | `COWORKER_LOG_CORPUS=1`        | Enable sha256-deduplicated corpus blob writes. **Off by default**. See [`logging-privacy.md`](logging-privacy.md). |
 | `XDG_CONFIG_HOME`              | Override config root. Default: `~/.config`. Coworker's dir is `${XDG_CONFIG_HOME}/coworker/`. |

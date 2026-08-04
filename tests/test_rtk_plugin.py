@@ -555,3 +555,37 @@ def test_status_cursor_row_reports_parity_state(tmp_path, capsys):
     assert "not-applicable" not in out
     assert "inherited" not in out
     assert "reads Claude settings.json hooks" not in out
+
+
+def test_status_warns_when_cursor_agent_missing(tmp_path, capsys):
+    """Hook registered but cursor-agent absent — status must say the hook
+    will not apply, so the operator does not overestimate token reduction."""
+    settings_path = tmp_path / "settings.json"
+    _write_settings(settings_path, _baseline_settings())
+
+    with patch.object(rtk, "_rtk_binary_path", return_value="/usr/local/bin/rtk"), \
+         patch.object(rtk, "_rtk_version", return_value="0.40.0"), \
+         patch.object(rtk_cursor_hook, "_cursor_agent_path", return_value=None):
+        rtk.cmd_enable(config_path=settings_path)
+        rc = rtk.cmd_status(config_path=settings_path)
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "cursor-agent not found on PATH" in captured.err
+    assert "token reduction will not apply" in captured.err
+
+
+def test_status_no_cursor_warning_when_agent_present(tmp_path, capsys):
+    settings_path = tmp_path / "settings.json"
+    _write_settings(settings_path, _baseline_settings())
+
+    with patch.object(rtk, "_rtk_binary_path", return_value="/usr/local/bin/rtk"), \
+         patch.object(rtk, "_rtk_version", return_value="0.40.0"), \
+         patch.object(rtk_cursor_hook, "_cursor_agent_path",
+                      return_value="/usr/local/bin/cursor-agent"):
+        rtk.cmd_enable(config_path=settings_path)
+        rc = rtk.cmd_status(config_path=settings_path)
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "cursor-agent not found on PATH" not in captured.err

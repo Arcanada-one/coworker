@@ -204,7 +204,9 @@ def test_call_with_fallback_hops_on_429():
         PROVIDERS["deepseek"]["env_key"]: primary,
         PROVIDERS["openrouter"]["env_key"]: fallback,
     })
-    profile = {"fallback_provider": "openrouter"}
+    # Retry policy pinned to zero — this test asserts hop semantics, not the
+    # per-provider retry budget (covered in test_retry_policy.py).
+    profile = {"fallback_provider": "openrouter", "max_retries": 0}
     resp, name, cfg, model, latency = call_with_fallback(
         "deepseek", PROVIDERS["deepseek"], "deepseek-chat",
         profile, PROVIDERS, {"messages": [], "max_tokens": 8},
@@ -260,7 +262,8 @@ def test_call_with_fallback_reraises_when_no_fallback_declared():
     with pytest.raises(_StatusError) as exc:
         call_with_fallback(
             "deepseek", PROVIDERS["deepseek"], "deepseek-chat",
-            {"system_prompt": ""}, PROVIDERS, {"messages": [], "max_tokens": 8},
+            {"system_prompt": "", "max_retries": 0}, PROVIDERS,
+            {"messages": [], "max_tokens": 8},
             client_factory=factory,
         )
     assert exc.value.status_code == 429
@@ -274,7 +277,7 @@ def test_call_with_fallback_single_hop_fallback_error_propagates():
         PROVIDERS["deepseek"]["env_key"]: primary,
         PROVIDERS["openrouter"]["env_key"]: fallback,
     })
-    profile = {"fallback_provider": "openrouter"}
+    profile = {"fallback_provider": "openrouter", "max_retries": 0}
     with pytest.raises(_StatusError):
         call_with_fallback(
             "deepseek", PROVIDERS["deepseek"], "deepseek-chat",

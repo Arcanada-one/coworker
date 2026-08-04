@@ -521,6 +521,13 @@ def cmd_status(
         f"    Cursor:   {'enabled' if cur['hook_present'] else 'disabled'}"
         f" (hooks.json {cur['event']} -> rtk hook cursor)"
     )
+    if cur["hook_present"] and not cur.get("agent_detected", True):
+        print(
+            "              NOTE: cursor-agent not found on PATH — hook is "
+            "registered but token reduction will not apply until Cursor CLI "
+            "is installed.",
+            file=sys.stderr,
+        )
     print(
         f"    Codex:    {'enabled' if cx['shims_present'] and cx['codex_block_present'] else 'disabled'}"
         f" (shims={cx['shim_files_count']}, codex_config={'patched' if cx['codex_block_present'] else 'clean'})"
