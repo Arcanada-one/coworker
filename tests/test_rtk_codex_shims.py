@@ -7,7 +7,9 @@ SHIM_DIR / CODEX_CONFIG / HOME.
 from __future__ import annotations
 
 import os
+import shlex
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -36,10 +38,12 @@ def isolated(monkeypatch, tmp_path: Path):
     (fake_home / ".claude").mkdir()
     zprofile = fake_home / ".zprofile"
     bash_profile = fake_home / ".bash_profile"
+    profile = fake_home / ".profile"
 
     monkeypatch.setattr(mod, "SHIM_DIR", shim_dir)
     monkeypatch.setattr(mod, "ZPROFILE", zprofile)
     monkeypatch.setattr(mod, "BASH_PROFILE", bash_profile)
+    monkeypatch.setattr(mod, "PROFILE", profile, raising=False)
     monkeypatch.setattr(mod, "_rtk_binary_path", lambda: str(fake_rtk))
     # Force macOS branch so ZPROFILE is always patched even when missing.
     monkeypatch.setattr(mod.sys, "platform", "darwin")
@@ -55,6 +59,7 @@ def isolated(monkeypatch, tmp_path: Path):
         "shim_dir": shim_dir,
         "zprofile": zprofile,
         "bash_profile": bash_profile,
+        "profile": profile,
         "fake_rtk": fake_rtk,
         "fake_bin": bin_dir,
         "fake_home": fake_home,
@@ -76,8 +81,51 @@ def test_install_shims_writes_executable_wrappers(isolated):
         assert str(isolated["fake_rtk"]) in body
         assert str(isolated["fake_bin"] / cmd) in body
         assert "_COWORKER_RTK_SHIM_ACTIVE" in body
-        assert 'GREP_BIN=\'/usr/bin/grep\'' in body
-        assert '! "$GREP_BIN" -q' in body
+        assert "command -p grep -q" in body
+        assert "GREP_BIN" not in body
+
+
+def test_shim_probe_does_not_resolve_grep_through_path(isolated, tmp_path):
+    """The settings probe must not re-enter a grep shim from PATH.
+
+    A hostile PATH-first grep records invocation. The generated shim must use
+    the system utility lookup and then fall through to the installed real
+    binary without touching that canary.
+    """
+    mod = isolated["mod"]
+    hostile_bin = tmp_path / "hostile-bin"
+    hostile_bin.mkdir()
+    canary = tmp_path / "bare-grep-invoked"
+    hostile_grep = hostile_bin / "grep"
+    hostile_grep.write_text(
+        "#!/bin/bash\n"
+        f"printf invoked > {shlex.quote(str(canary))}\n"
+        "exit 1\n"
+    )
+    hostile_grep.chmod(0o755)
+
+    # A present, non-matching marker forces the probe to execute grep.
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text("{}\n")
+    shim_file = tmp_path / "grep-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("grep", str(isolated["fake_bin"] / "grep"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "needle", "file"],
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(isolated["fake_home"]),
+            "PATH": os.pathsep.join((str(hostile_bin), os.defpath)),
+        },
+        timeout=5,
+    )
+    assert result.returncode == 0, f"shim crashed: {result.stderr}"
+    assert "real-grep" in result.stdout
+    assert not canary.exists(), "settings probe resolved grep through PATH"
 
 
 def test_shim_dir_is_user_only(isolated):
@@ -179,6 +227,7 @@ def test_block_is_codex_scoped_not_unconditional(isolated):
     text = mod._profile_block_text()
     # Gate present.
     assert "/.codex/tmp/arg0/codex-arg0" in text, "missing codex arg0 PATH gate"
+    assert '":/Users/"' not in text, "gate must not hardcode the macOS home prefix"
     assert "case " in text and "esac" in text, "expected case-statement gate"
     # No unconditional unguarded export.
     lines = [ln.strip() for ln in text.splitlines()]
@@ -215,6 +264,75 @@ def test_inject_migrates_stale_v04_block(isolated):
     assert "case " in text
     # Old unconditional form gone.
     assert 'export PATH="' + str(isolated["shim_dir"]) + ':$PATH"\n' + mod.MARKER_END not in text
+
+
+def test_linux_profile_fallback_is_patched_without_creating_other_profiles(isolated, monkeypatch):
+    """Linux installs use an existing ~/.profile when ~/.bash_profile is absent."""
+    mod = isolated["mod"]
+    monkeypatch.setattr(mod.sys, "platform", "linux")
+    isolated["profile"].write_text("# linux user profile\n")
+
+    assert mod._profile_targets() == [isolated["profile"]]
+    assert mod.inject_codex_path(verbose=False) is True
+    assert mod.MARKER_BEGIN in isolated["profile"].read_text()
+    assert not isolated["zprofile"].exists()
+    assert not isolated["bash_profile"].exists()
+
+
+def test_linux_codex_profile_gate_activates_only_for_arg0_path(isolated, monkeypatch, tmp_path):
+    """The emitted Linux profile block activates in a Codex-marked shell."""
+    mod = isolated["mod"]
+    monkeypatch.setattr(mod.sys, "platform", "linux")
+    isolated["profile"].write_text("# linux user profile\n")
+    isolated["shim_dir"].mkdir()
+    probe = isolated["shim_dir"] / "rtk-linux-probe"
+    probe.write_text("#!/bin/bash\nprintf active\n")
+    probe.chmod(0o755)
+    mod.inject_codex_path(verbose=False)
+
+    arg0_dir = isolated["fake_home"] / ".codex" / "tmp" / "arg0" / "codex-arg0-linux"
+    arg0_dir.mkdir(parents=True)
+    active = subprocess.run(
+        ["bash", "-c", 'source "$HOME/.profile"; command -v rtk-linux-probe'],
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(isolated["fake_home"]),
+            "PATH": os.pathsep.join((str(arg0_dir), os.defpath)),
+        },
+        cwd=tmp_path,
+        timeout=5,
+    )
+    assert active.returncode == 0, active.stderr
+    assert active.stdout.strip() == str(probe)
+
+    ordinary = subprocess.run(
+        ["bash", "-c", 'source "$HOME/.profile"; command -v rtk-linux-probe'],
+        capture_output=True,
+        text=True,
+        env={"HOME": str(isolated["fake_home"]), "PATH": os.defpath},
+        cwd=tmp_path,
+        timeout=5,
+    )
+    assert ordinary.returncode != 0
+    assert ordinary.stdout == ""
+
+
+def test_linux_profile_is_reported_and_removed(isolated, monkeypatch):
+    """status and disable include the Linux fallback profile."""
+    mod = isolated["mod"]
+    monkeypatch.setattr(mod.sys, "platform", "linux")
+    isolated["profile"].write_text("# linux user profile\n")
+    mod.inject_codex_path(verbose=False)
+
+    state = mod.status()
+    assert state["profile_patched"] is True
+    assert state["profile_targets"] == [str(isolated["profile"])]
+
+    assert mod.remove_codex_path(verbose=False) is True
+    assert mod.MARKER_BEGIN not in isolated["profile"].read_text()
+    assert isolated["profile"].read_text().strip() == "# linux user profile"
+    assert mod.status()["profile_patched"] is False
 
 
 def test_status_reports_state(isolated):

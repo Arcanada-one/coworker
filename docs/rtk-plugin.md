@@ -20,7 +20,7 @@ your own profile.
 Coworker ships a thin convenience plugin around upstream RTK:
 
 - `coworker rtk install` — print OS-specific install instructions for the `rtk` binary.
-- `coworker rtk enable`  — register a marker-tagged RTK hook in `~/.claude/settings.json` **AND** (since v0.4.0) install a PATH-shim layer at `~/.local/share/rtk-shims/` for Codex CLI parity, with marker-fenced PATH-injection blocks in `~/.zprofile` and `~/.bash_profile`.
+- `coworker rtk enable`  — register a marker-tagged RTK hook in `~/.claude/settings.json` **AND** (since v0.4.0) install a PATH-shim layer at `~/.local/share/rtk-shims/` for Codex CLI parity, with marker-fenced PATH-injection blocks in `~/.zprofile` (macOS), `~/.bash_profile`, or an existing `~/.profile` fallback (Linux).
 - `coworker rtk disable` — remove the hook **AND** the shim directory **AND** the PATH-injection blocks byte-for-byte.
 - `coworker rtk status`  — report rtk binary state + per-agent parity matrix (Claude / Cursor / Codex).
 - `coworker rtk economics` — combined «spending (ccusage) vs savings (RTK)» view; a resilient replacement for the upstream `rtk cc-economics` subcommand (which crashes on the current ccusage JSON schema).
@@ -41,7 +41,7 @@ agentic CLIs:
 |---|---|---|
 | Claude Code | `PreToolUse` hook (`rtk hook claude`) in `~/.claude/settings.json` | empirical, byte-count probe on `ls -la <large-dir>` |
 | Cursor | Native `beforeShellExecution` hook (`rtk hook cursor`) in `~/.cursor/hooks.json` | empirical, live smoke: `ls -la /tmp` returns rtk-compacted output |
-| Codex CLI | PATH-shim dispatcher at `~/.local/share/rtk-shims/` (12 wrapped commands), injected into login-shell `PATH` via marker-fenced block in `~/.zprofile` + `~/.bash_profile`. Codex's `bash -lc` wrapper picks up the shim ahead of the real binary. | empirical, `codex exec` byte-count probe (requires one-time hook approval — see below) |
+| Codex CLI | PATH-shim dispatcher at `~/.local/share/rtk-shims/` (12 wrapped commands), injected into login-shell `PATH` via a marker-fenced block in `~/.zprofile`, `~/.bash_profile`, or an existing `~/.profile` fallback. Codex's `bash -lc` wrapper picks up the shim ahead of the real binary. | empirical, `codex exec` byte-count probe (requires one-time hook approval — see below) |
 
 ### Codex CLI: one-time hook approval
 
