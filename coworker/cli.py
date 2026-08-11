@@ -7,7 +7,7 @@ import pathlib
 import sys
 
 from .config import BLOBS_ROOT, load_keys_env, load_providers
-from .logger import get_cached_tokens, log_call
+from .logger import get_cached_tokens, log_call, read_rtk_signal
 from .profiles import load_profile
 from .providers import (
     call_with_fallback,
@@ -175,6 +175,7 @@ def cmd_ask(args) -> int:
         return API_ERROR_EXIT
 
     log_extra = _build_gate_log_extra(gate_errors, allow_code, paths)
+    rtk_used, rtk_savings = read_rtk_signal()
 
     out = resp.choices[0].message.content or ""
     if not out.strip():
@@ -183,7 +184,7 @@ def cmd_ask(args) -> int:
             log_call(
                 resp, prov_name, prov_cfg, model, args.profile, "ask",
                 messages[1:], "", latency_ms, args.task_id, system_prompt,
-                extra=log_extra,
+                extra=log_extra, rtk_used=rtk_used, rtk_savings_estimate=rtk_savings,
             )
         return 3
     print(out)
@@ -201,7 +202,7 @@ def cmd_ask(args) -> int:
         log_call(
             resp, prov_name, prov_cfg, model, args.profile, "ask",
             messages[1:], out, latency_ms, args.task_id, system_prompt,
-            extra=log_extra,
+            extra=log_extra, rtk_used=rtk_used, rtk_savings_estimate=rtk_savings,
         )
     return 0
 
@@ -309,10 +310,12 @@ def cmd_write(args) -> int:
         )
 
     if not args.no_log:
+        rtk_used, rtk_savings = read_rtk_signal()
         log_call(
             resp, prov_name, prov_cfg, model, args.profile, "write",
             messages[1:], body, latency_ms, args.task_id, system_prompt,
             extra=_build_gate_log_extra(gate_errors, allow_code, context_paths),
+            rtk_used=rtk_used, rtk_savings_estimate=rtk_savings,
         )
     return 0
 

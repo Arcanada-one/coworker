@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. Format follows 
 
 ### Added
 
+- **RTK-savings telemetry surfaced in `coworker stats`.** When an RTK-aware wrapper reports a reduction via the `COWORKER_RTK_USED` / `COWORKER_RTK_SAVINGS` environment variables, `coworker` records `coworker.rtk_used` and `coworker.rtk_savings_estimate` on the call's JSONL log line, and `coworker stats` aggregates them into a per-key `sum_rtk_savings` (JSON export) plus a separate `RTK-saved tokens: <N>` summary line in the human table. Fully backwards-compatible: logs written before the field aggregate as `0`, the CSV/Markdown export column set is unchanged, and RTK-less calls stay byte-identical to before.
+
 - **`coworker stats --export {csv,markdown}` is documented.** The exporter shipped without a README entry; the `stats` usage block, the flag description and two worked examples (spreadsheet CSV, monthly Markdown report) are now in the README alongside the `text`/`json` formats.
 
 - **`coworker rtk status` warns when the Cursor hook is registered but cursor-agent is absent.** The Cursor parity row already reports the native `beforeShellExecution` hook state honestly; the status command now additionally detects whether the `cursor-agent` binary is on PATH and, when the hook is registered without it, prints a stderr note that token reduction will not apply until Cursor CLI is installed — so operators do not overestimate savings on machines where Cursor is not set up.
