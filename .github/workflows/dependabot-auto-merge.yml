@@ -74,12 +74,25 @@ jobs:
             else
               echo "skip: cannot parse versions from title"; echo "::endgroup::"; continue
             fi
+            from_patch="${BASH_REMATCH[3]}"; to_patch="${BASH_REMATCH[6]}"
+            to_minor="${BASH_REMATCH[5]}"
             if [ "$from_major" != "$to_major" ]; then
               echo "skip: major bump ${from_major} -> ${to_major}"; echo "::endgroup::"; continue
             fi
+            # A version carrying no patch component is an X.Y line (CPython,
+            # container base images, Go). There the MINOR is the compatibility
+            # axis, not the major: python 3.12-slim -> 3.14-slim is a breaking
+            # runtime change that major-equality alone would wave through.
+            # This exact case was merged by hand in SEC-0039 before the gate
+            # was corrected.
+            if [ -z "$from_patch" ] || [ -z "$to_patch" ]; then
+              if [ "$from_minor" != "$to_minor" ]; then
+                echo "skip: X.Y line bump ${from_major}.${from_minor} -> ${to_major}.${to_minor} (minor is the compatibility axis)"
+                echo "::endgroup::"; continue
+              fi
+            fi
             # 0.x releases treat the minor as the breaking axis.
             if [ "$from_major" = "0" ]; then
-              to_minor="${BASH_REMATCH[5]}"
               if [ "$from_minor" != "$to_minor" ]; then
                 echo "skip: 0.x minor bump is breaking by convention"; echo "::endgroup::"; continue
               fi
