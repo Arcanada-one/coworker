@@ -15,4 +15,4 @@ permissions:
 
 jobs:
   governance:
-    uses: Arcanada-one/shared-workflows/.github/workflows/governance-diff-guard.yml@a7d2e979fdee8e53f5ae0d9925576ee044bb999f
+    uses: Arcanada-one/shared-workflows/.github/workflows/governance-diff-guard.yml@b0c2418747f74ce4dfcadea3652e56abfe993465
