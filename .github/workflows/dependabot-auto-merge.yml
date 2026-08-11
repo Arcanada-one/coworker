@@ -1,0 +1,116 @@
+name: dependabot-auto-merge
+
+# Merges routine Dependabot updates once the repository's own CI has actually
+# concluded green.
+#
+# Design notes, both learned the hard way in SEC-0039:
+#
+#  1. It reacts to check_suite completion instead of waiting for CI. An earlier
+#     version blocked on `gh pr checks --watch`; this org has a single shared
+#     ci-general runner, so the waiting job occupied the only runner while the
+#     CI it waited for starved behind it. Reacting costs seconds, never blocks.
+#
+#  2. It gates on observed check conclusions, not on `gh pr merge --auto`.
+#     Only two repositories in this org have required status checks on main
+#     (private repos cannot have branch protection on the current plan), so
+#     `--auto` would merge instantly with no CI gate almost everywhere.
+#
+# Scope is deliberately narrow: same-major dependency bumps whose diff touches
+# no governance path. Majors, and anything editing .github/workflows, CODEOWNERS,
+# branch-protection config or the credential/execution boundary, are left for a
+# human decision — a dependency bot must not rewrite CI or ownership unremarked.
+
+on:
+  check_suite:
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: dependabot-auto-merge
+    runs-on: [self-hosted, linux, arcana-ai, docker, ci-general]
+    steps:
+      - name: Evaluate and merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.check_suite.head_sha }}
+        run: |
+          set -euo pipefail
+
+          prs=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" \
+                  --jq '[.[] | select(.state=="open") | .number] | .[]' || true)
+          [ -n "$prs" ] || { echo "no open PR for ${HEAD_SHA}"; exit 0; }
+
+          for pr in $prs; do
+            echo "::group::PR #${pr}"
+            meta=$(gh api "repos/${REPO}/pulls/${pr}")
+            author=$(jq -r '.user.login' <<<"$meta")
+            title=$(jq -r '.title'      <<<"$meta")
+            base=$(jq -r '.base.ref'    <<<"$meta")
+            draft=$(jq -r '.draft'      <<<"$meta")
+
+            if [ "$author" != "dependabot[bot]" ]; then echo "skip: author=$author"; echo "::endgroup::"; continue; fi
+            if [ "$draft" = "true" ]; then echo "skip: draft"; echo "::endgroup::"; continue; fi
+            if [ "$base" != "${{ github.event.repository.default_branch }}" ]; then
+              echo "skip: base=$base"; echo "::endgroup::"; continue
+            fi
+
+            # --- semver gate -------------------------------------------------
+            # Fail closed: anything that does not parse as an unambiguous
+            # same-major bump is left alone. Title parsing is used because
+            # dependabot/fetch-metadata needs a pull_request context, which a
+            # check_suite event does not carry.
+            if [[ "$title" =~ from\ ([0-9]+)\.([0-9]+)\.?([0-9]*)[^\ ]*\ to\ ([0-9]+)\.([0-9]+)\.?([0-9]*) ]]; then
+              from_major="${BASH_REMATCH[1]}"; to_major="${BASH_REMATCH[4]}"
+              from_minor="${BASH_REMATCH[2]}"
+            else
+              echo "skip: cannot parse versions from title"; echo "::endgroup::"; continue
+            fi
+            if [ "$from_major" != "$to_major" ]; then
+              echo "skip: major bump ${from_major} -> ${to_major}"; echo "::endgroup::"; continue
+            fi
+            # 0.x releases treat the minor as the breaking axis.
+            if [ "$from_major" = "0" ]; then
+              to_minor="${BASH_REMATCH[5]}"
+              if [ "$from_minor" != "$to_minor" ]; then
+                echo "skip: 0.x minor bump is breaking by convention"; echo "::endgroup::"; continue
+              fi
+            fi
+
+            # --- governance gate ---------------------------------------------
+            files=$(gh api --paginate "repos/${REPO}/pulls/${pr}/files?per_page=100" --jq '.[].filename')
+            if grep -qE '^(\.github/workflows/|\.github/CODEOWNERS|\.github/settings\.yml|\.github/branch-protection|\.github/.*governance|\.github/.*\.pub|dev-tools/.*governance)' <<<"$files" \
+               || grep -qE '(credential-broker/|execution-boundary/|supervisor/src/spawn\.rs|tools/src/bash\.rs)' <<<"$files"; then
+              echo "skip: touches a governance path — needs a human decision"
+              echo "::endgroup::"; continue
+            fi
+
+            # --- CI gate ------------------------------------------------------
+            runs=$(gh api --paginate "repos/${REPO}/commits/${HEAD_SHA}/check-runs?per_page=100" \
+                    --jq "[.check_runs[] | select(.name != \"${{ github.workflow }}\") | {n:.name,s:.status,c:.conclusion}]")
+            total=$(jq 'length' <<<"$runs")
+            pending=$(jq '[.[]|select(.s!="completed")]|length' <<<"$runs")
+            bad=$(jq '[.[]|select(.c!="success" and .c!="neutral" and .c!="skipped")]|length' <<<"$runs")
+
+            if [ "$total" -eq 0 ]; then echo "skip: no CI ran — absence of checks is not a pass"; echo "::endgroup::"; continue; fi
+            if [ "$pending" -gt 0 ]; then echo "skip: $pending check(s) still running"; echo "::endgroup::"; continue; fi
+            if [ "$bad" -gt 0 ]; then
+              echo "skip: CI not green"; jq -r '.[]|select(.c!="success" and .c!="neutral" and .c!="skipped")|"   \(.c) \(.n)"' <<<"$runs"
+              echo "::endgroup::"; continue
+            fi
+
+            # --- merge, then read the result back -----------------------------
+            echo "merging #${pr}: ${title}"
+            gh pr merge "$pr" --repo "$REPO" --squash --delete-branch || true
+            sleep 5
+            if [ "$(gh api "repos/${REPO}/pulls/${pr}" --jq '.merged')" = "true" ]; then
+              echo "merged #${pr}"
+            else
+              echo "::warning::merge of #${pr} did not land"
+            fi
+            echo "::endgroup::"
+          done
