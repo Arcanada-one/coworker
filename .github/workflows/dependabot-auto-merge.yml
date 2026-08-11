@@ -45,7 +45,11 @@ jobs:
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.actor.login == 'dependabot[bot]'
-    runs-on: [self-hosted, linux, arcana-ai, docker, ci-general]
+    # GitHub-hosted: public repos get free unlimited hosted minutes, and the
+    # org's single self-hosted ci-general runner is permanently contended —
+    # targeting it left these jobs queued indefinitely (SEC-0039). Private-repo
+    # callers need self-hosted, since the org's PAID hosted minutes are spent.
+    runs-on: ubuntu-latest
     steps:
       - name: Evaluate and merge
         env:
