@@ -17,6 +17,29 @@ def _system_hash(system_prompt: str) -> str:
     return "sha256:" + hashlib.sha256(system_prompt.encode()).hexdigest()[:16]
 
 
+_RTK_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def read_rtk_signal(env: dict | None = None) -> tuple[bool, int]:
+    """Read the per-call RTK reduction signal from the environment.
+
+    Contract (see coworker RTK plugin): an RTK-aware wrapper attributes its
+    savings to coworker telemetry via two env vars —
+      * ``COWORKER_RTK_USED``    truthy (1/true/yes/on, case-insensitive) ⇒ used.
+      * ``COWORKER_RTK_SAVINGS`` non-negative integer estimate of tokens saved.
+    Unset / malformed / negative ⇒ (False, 0). Read-only; no side effects.
+    """
+    src = os.environ if env is None else env
+    used = str(src.get("COWORKER_RTK_USED", "")).strip().lower() in _RTK_TRUTHY
+    try:
+        savings = int(str(src.get("COWORKER_RTK_SAVINGS", "0")).strip())
+    except (TypeError, ValueError):
+        savings = 0
+    if savings < 0:
+        savings = 0
+    return used, savings
+
+
 def build_corpus_payload(
     user_messages: list[dict],
     response_text: str,
@@ -86,11 +109,17 @@ def log_call(
     log_dir: pathlib.Path = LOG_DIR,
     blobs_root: pathlib.Path = BLOBS_ROOT,
     extra: dict | None = None,
+    rtk_used: bool = False,
+    rtk_savings_estimate: int = 0,
 ) -> None:
     """Two-tier log: JSONL metadata always; blob only if COWORKER_LOG_CORPUS=1.
 
     `extra` merges additional fields into the metadata record (e.g. gate-override
     audit fields). Falsy value (None / empty dict) ⇒ no-op.
+
+    RTK telemetry (`rtk_used` / `rtk_savings_estimate`) is recorded **only when
+    `rtk_used` is truthy**, so RTK-less calls stay byte-identical to legacy
+    records; the stats layer defaults an absent field to 0.
     """
     if os.environ.get("COWORKER_NO_LOG") == "1":
         return
@@ -120,6 +149,10 @@ def log_call(
             "coworker.task_id": task_id,
             "coworker.subcommand": subcommand,
         }
+
+        if rtk_used:
+            record["coworker.rtk_used"] = True
+            record["coworker.rtk_savings_estimate"] = int(rtk_savings_estimate)
 
         if os.environ.get("COWORKER_LOG_CORPUS") == "1":
             corpus_messages, corpus_response = user_messages, response_text

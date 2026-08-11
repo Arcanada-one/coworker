@@ -29,6 +29,8 @@ Each record carries operational metadata only — **no message text, no API key,
 | `coworker.task_id`                   | `null` or `"FEAT-0001"`              | Whatever you passed via `--task-id`.                          |
 | `coworker.subcommand`                | `ask` / `write`                      |                                                              |
 | `coworker.corpus_hash`               | `<full sha256>`                      | **Only present** if `COWORKER_LOG_CORPUS=1`.                  |
+| `coworker.rtk_used`                  | `true`                               | **Only present** when an RTK reduction was reported for the call (see below). Absent ⇒ RTK not used. |
+| `coworker.rtk_savings_estimate`      | `1234`                               | **Only present** alongside `coworker.rtk_used`; estimated tokens RTK saved on this call. Absent ⇒ `0`. |
 
 Field naming follows OpenTelemetry GenAI semantic conventions where they apply. Pipe to `jq`, ship to a TSDB, ingest into your favourite observability stack.
 
@@ -38,6 +40,22 @@ Field naming follows OpenTelemetry GenAI semantic conventions where they apply. 
 - All calls: `export COWORKER_NO_LOG=1`.
 
 `coworker stats` and `coworker debug` rely on tier 1; disabling it disables them too.
+
+### RTK-savings telemetry
+
+RTK (the opt-in token-reduction plugin) is a second, independent token-saving channel. When an
+RTK-aware wrapper reduces a call's payload, it attributes the savings to coworker telemetry via two
+environment variables read at call time:
+
+| Env var                | Values                                   | Effect                                             |
+| ---------------------- | ---------------------------------------- | -------------------------------------------------- |
+| `COWORKER_RTK_USED`    | `1` / `true` / `yes` / `on` (case-insensitive) | Marks the call as RTK-reduced.               |
+| `COWORKER_RTK_SAVINGS` | non-negative integer                     | Estimated tokens saved (invalid/negative ⇒ `0`).   |
+
+Both unset ⇒ nothing is written and the record is byte-identical to a call without RTK. `coworker
+stats` sums the estimate across the selected window and prints a separate `RTK-saved tokens: <N>`
+line (shown only when the total is non-zero); the JSON export carries `sum_rtk_savings` per key. Logs
+written before this field existed aggregate as `0` — no migration needed.
 
 ## Tier 2 — corpus blobs (opt-in)
 

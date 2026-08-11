@@ -153,13 +153,18 @@ usage: coworker stats [-h] [--since SINCE]
                       [--by {provider,profile,model,combined}]
                       [--profile PROFILE] [--provider PROVIDER]
                       [--format {text,json}]
+                      [--export {csv,markdown}]
 ```
 
 Reads `~/.local/state/coworker/log/*.jsonl` and prints aggregates. JSON output has a stable schema — pipe to `jq`.
 
+`--export {csv,markdown}` renders the same aggregate as a spreadsheet-ready CSV or a GitHub-flavored Markdown table (handy for monthly cost reports); it overrides `--format` and emits a header-only table when no records match.
+
 ```bash
 coworker stats --since 7d --by provider
 coworker stats --since 30d --by combined --format json | jq '.[] | .sum_cost_usd'
+coworker stats --since 30d --by profile --export csv > costs.csv
+coworker stats --since 30d --by provider --export markdown >> monthly-report.md
 ```
 
 ### `coworker debug`
@@ -249,6 +254,7 @@ Each plugin also keeps its own top-level subcommand (e.g. `coworker rtk enable`)
 - [`docs/claude-code-integration.md`](docs/claude-code-integration.md)
 - [`docs/plugins.md`](docs/plugins.md)
 - [`docs/rtk-plugin.md`](docs/rtk-plugin.md)
+- [`docs/live-integration.md`](docs/live-integration.md)
 - [`docs/release-verification.md`](docs/release-verification.md)
 - [`docs/troubleshooting.md`](docs/troubleshooting.md)
 

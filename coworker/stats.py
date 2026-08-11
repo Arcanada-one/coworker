@@ -37,6 +37,15 @@ def parse_logs(
     return records
 
 
+def _num(val) -> float:
+    """Coerce a log field to a number; non-numeric / missing / bool → 0.
+
+    A hand-edited or third-party-written JSONL line must not be able to take
+    `stats` down with a ValueError, and `True` must not count as 1 token.
+    """
+    return val if isinstance(val, (int, float)) and not isinstance(val, bool) else 0
+
+
 def aggregate_stats(records: list[dict], by: str = "provider") -> dict:
     """Aggregate records by field; returns nested dict of metrics."""
     groups: dict[str, list] = {}
@@ -62,6 +71,10 @@ def aggregate_stats(records: list[dict], by: str = "provider") -> dict:
         p50 = latencies[n // 2] if latencies else 0
         p95 = latencies[int(n * 0.95)] if latencies else 0
 
+        # RTK savings — additive metric; absent field (legacy log) ⇒ 0.
+        sum_rtk_savings = sum(_num(r.get("coworker.rtk_savings_estimate", 0)) for r in recs)
+        rtk_used_count = sum(1 for r in recs if r.get("coworker.rtk_used"))
+
         result[key] = {
             "count": len(recs),
             "sum_input_tokens": sum_input,
@@ -70,6 +83,8 @@ def aggregate_stats(records: list[dict], by: str = "provider") -> dict:
             "p50_latency_ms": p50,
             "p95_latency_ms": p95,
             "cache_hit_rate": round(cached_tokens_total / sum_input, 3) if sum_input else 0.0,
+            "sum_rtk_savings": sum_rtk_savings,
+            "rtk_used_count": rtk_used_count,
         }
     return result
 
@@ -179,4 +194,9 @@ def cmd_stats(args) -> int:
             f"{int(m['p50_latency_ms']):>7} {int(m['p95_latency_ms']):>7} "
             f"{m['cache_hit_rate']:>9.3f}"
         )
+
+    total_rtk_savings = sum(m.get("sum_rtk_savings", 0) for m in agg.values())
+    if total_rtk_savings > 0:
+        print("-" * len(hdr))
+        print(f"RTK-saved tokens: {total_rtk_savings}")
     return 0
