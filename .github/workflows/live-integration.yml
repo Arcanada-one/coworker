@@ -1,0 +1,104 @@
+name: live-integration
+
+# Scheduled live integration against the real Moonshot + DeepSeek APIs.
+#
+# Why a separate workflow (not ci.yml): these calls consume real API quota and
+# require real secrets. Running them on every push/PR would pay per change and
+# would expose secrets to fork PRs. So this job is DEFAULT-OFF on PR — it fires
+# only on a weekly schedule and on manual `workflow_dispatch`, both of which run
+# on the default branch where repo secrets are available and fork PRs cannot
+# reach them.
+#
+# What it verifies: that the shipped `coworker` CLI still talks to both providers
+# end-to-end (base_url, API shape, auth, pricing) via the gated live suite
+# (tests/test_rtk_live.py, unskipped with RUN_LIVE_TESTS=1) plus two real
+# `coworker ask` probes. It then measures real USD spend with `coworker stats`
+# and enforces a weekly cost cap (dev-tools/ci_cost_cap.py): at/over the cap the
+# run goes red with a ::warning:: — the operator's cue to investigate or mute
+# (disable) the schedule.
+#
+# Operator setup (one-time): add repo secrets MOONSHOT_API_KEY, DEEPSEEK_API_KEY
+# (Settings -> Secrets and variables -> Actions). Optionally set repo variable
+# COWORKER_WEEKLY_COST_CAP_USD; otherwise the in-workflow default applies. See
+# docs/live-integration.md.
+
+on:
+  schedule:
+    # Weekly, Mondays 04:17 UTC (off-peak; skewed minute avoids top-of-hour congestion).
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      cost_cap_usd:
+        description: 'Override the weekly USD cost cap for this run.'
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: live-integration
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      # Precedence: manual dispatch input > repo variable > in-workflow default.
+      COST_CAP_USD: ${{ github.event.inputs.cost_cap_usd || vars.COWORKER_WEEKLY_COST_CAP_USD || '5.00' }}
+    steps:
+      # Until an operator adds the provider secrets there is nothing live to
+      # test. Skipping (green, with a notice) rather than failing keeps a
+      # permanently red weekly run off a public repository; a missing key is a
+      # setup state, not a regression. Every live step below is gated on this.
+      - name: Are the provider secrets configured?
+        id: keys
+        run: |
+          if [ -n "$MOONSHOT_API_KEY" ] && [ -n "$DEEPSEEK_API_KEY" ]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::MOONSHOT_API_KEY / DEEPSEEK_API_KEY are not configured — live integration skipped. See docs/live-integration.md.'
+          fi
+
+      - if: steps.keys.outputs.present == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - if: steps.keys.outputs.present == 'true'
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        if: steps.keys.outputs.present == 'true'
+        run: pip install -e ".[dev]"
+
+      - name: Seed coworker config
+        if: steps.keys.outputs.present == 'true'
+        run: |
+          mkdir -p "$HOME/.config/coworker"
+          cp examples/providers.yaml.example "$HOME/.config/coworker/providers.yaml"
+          cp examples/profiles.yaml.example "$HOME/.config/coworker/profiles.yaml"
+
+      - name: Live provider suite
+        if: steps.keys.outputs.present == 'true'
+        env:
+          RUN_LIVE_TESTS: '1'
+        run: pytest tests/test_rtk_live.py -q
+
+      - name: Shipped-path cost probes
+        if: steps.keys.outputs.present == 'true'
+        run: |
+          coworker ask --provider moonshot --question 'Reply with the single word OK.'
+          coworker ask --provider deepseek --question 'Reply with the single word OK.'
+
+      - name: Export spend
+        if: steps.keys.outputs.present == 'true'
+        run: coworker stats --since 1h --format json > stats.json
+
+      - name: Enforce weekly cost cap
+        if: steps.keys.outputs.present == 'true'
+        run: python dev-tools/ci_cost_cap.py --stats-json stats.json --cap "$COST_CAP_USD"

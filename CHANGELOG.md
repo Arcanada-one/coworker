@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. Format follows 
 
 ### Added
 
+- **Scheduled live-integration CI.** A new `live-integration` GitHub Actions workflow runs the gated Moonshot + DeepSeek live suite (`tests/test_rtk_live.py`) weekly and on manual dispatch, off the PR/push path so real quota and secrets are never spent or exposed on a pull request. After the provider calls it measures real spend via `coworker stats` and enforces a weekly USD cost cap (`dev-tools/ci_cost_cap.py`): at or above the cap the run fails with a warning annotation. Required repo secrets and the cost-cap variable are documented in [`docs/live-integration.md`](docs/live-integration.md).
+
 - **RTK-savings telemetry surfaced in `coworker stats`.** When an RTK-aware wrapper reports a reduction via the `COWORKER_RTK_USED` / `COWORKER_RTK_SAVINGS` environment variables, `coworker` records `coworker.rtk_used` and `coworker.rtk_savings_estimate` on the call's JSONL log line, and `coworker stats` aggregates them into a per-key `sum_rtk_savings` (JSON export) plus a separate `RTK-saved tokens: <N>` summary line in the human table. Fully backwards-compatible: logs written before the field aggregate as `0`, the CSV/Markdown export column set is unchanged, and RTK-less calls stay byte-identical to before.
 
 - **`coworker stats --export {csv,markdown}` is documented.** The exporter shipped without a README entry; the `stats` usage block, the flag description and two worked examples (spreadsheet CSV, monthly Markdown report) are now in the README alongside the `text`/`json` formats.

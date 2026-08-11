@@ -254,6 +254,7 @@ Each plugin also keeps its own top-level subcommand (e.g. `coworker rtk enable`)
 - [`docs/claude-code-integration.md`](docs/claude-code-integration.md)
 - [`docs/plugins.md`](docs/plugins.md)
 - [`docs/rtk-plugin.md`](docs/rtk-plugin.md)
+- [`docs/live-integration.md`](docs/live-integration.md)
 - [`docs/release-verification.md`](docs/release-verification.md)
 - [`docs/troubleshooting.md`](docs/troubleshooting.md)
 
