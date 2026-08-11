@@ -35,6 +35,16 @@ permissions:
 jobs:
   auto-merge:
     name: dependabot-auto-merge
+    # Job-level `if` is evaluated BEFORE a runner is assigned, so a non-matching
+    # event costs nothing. Without it the job claims a runner just to discover
+    # the PR is not Dependabot's — and workflow_run fires once per upstream
+    # workflow, so a repo with two CI workflows spawns two jobs per push by
+    # anyone. In SEC-0039 that put 22 useless runs on the org's single
+    # ci-general runner before it was caught.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]'
     runs-on: [self-hosted, linux, arcana-ai, docker, ci-general]
     steps:
       - name: Evaluate and merge
