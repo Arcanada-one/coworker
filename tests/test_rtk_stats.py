@@ -186,3 +186,18 @@ def test_stats_json_has_rtk_key(tmp_path, monkeypatch, capsys):
     cmd_stats(_Args(format="json"))
     out = json.loads(capsys.readouterr().out)
     assert out["deepseek"]["sum_rtk_savings"] == 1000
+
+
+def test_non_numeric_savings_field_does_not_crash_aggregation():
+    """A hand-edited or third-party log line must not take `stats` down."""
+    recs = [
+        {"gen_ai.system": "moonshot", "coworker.rtk_used": True,
+         "coworker.rtk_savings_estimate": "not-a-number"},
+        {"gen_ai.system": "moonshot", "coworker.rtk_used": True,
+         "coworker.rtk_savings_estimate": 120},
+        {"gen_ai.system": "moonshot", "coworker.rtk_used": True,
+         "coworker.rtk_savings_estimate": True},
+    ]
+    agg = aggregate_stats(recs, by="provider")
+    # "not-a-number" and the bool both coerce to 0; only the real 120 counts.
+    assert agg["moonshot"]["sum_rtk_savings"] == 120

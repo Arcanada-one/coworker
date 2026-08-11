@@ -37,6 +37,15 @@ def parse_logs(
     return records
 
 
+def _num(val) -> float:
+    """Coerce a log field to a number; non-numeric / missing / bool → 0.
+
+    A hand-edited or third-party-written JSONL line must not be able to take
+    `stats` down with a ValueError, and `True` must not count as 1 token.
+    """
+    return val if isinstance(val, (int, float)) and not isinstance(val, bool) else 0
+
+
 def aggregate_stats(records: list[dict], by: str = "provider") -> dict:
     """Aggregate records by field; returns nested dict of metrics."""
     groups: dict[str, list] = {}
@@ -63,7 +72,7 @@ def aggregate_stats(records: list[dict], by: str = "provider") -> dict:
         p95 = latencies[int(n * 0.95)] if latencies else 0
 
         # RTK savings — additive metric; absent field (legacy log) ⇒ 0.
-        sum_rtk_savings = sum(int(r.get("coworker.rtk_savings_estimate", 0)) for r in recs)
+        sum_rtk_savings = sum(_num(r.get("coworker.rtk_savings_estimate", 0)) for r in recs)
         rtk_used_count = sum(1 for r in recs if r.get("coworker.rtk_used"))
 
         result[key] = {
