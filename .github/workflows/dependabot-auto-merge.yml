@@ -41,10 +41,15 @@ jobs:
     # workflow, so a repo with two CI workflows spawns two jobs per push by
     # anyone. In SEC-0039 that put 22 useless runs on the org's single
     # ci-general runner before it was caught.
+    #
+    # Matching on the branch prefix rather than workflow_run.actor: the actor is
+    # whoever triggered the run, so a maintainer re-running CI on a Dependabot PR
+    # makes the actor a human and the gate silently stops firing. Dependabot
+    # branch names are deterministic; the PR author is re-checked inside the job.
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.actor.login == 'dependabot[bot]'
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
     # GitHub-hosted: public repos get free unlimited hosted minutes, and the
     # org's single self-hosted ci-general runner is permanently contended —
     # targeting it left these jobs queued indefinitely (SEC-0039). Private-repo
