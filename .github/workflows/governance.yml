@@ -1,0 +1,18 @@
+name: governance
+
+# Fails any PR that touches a governance path (.github/workflows, CODEOWNERS,
+# branch-protection config, credential/execution boundary) unless the PR body
+# carries: GOVERNANCE-CHANGE: <at least 20 characters of reason>.
+#
+# Pinned by commit SHA, not a moving ref, so the guard cannot change under us.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  governance:
+    uses: Arcanada-one/shared-workflows/.github/workflows/governance-diff-guard.yml@f7d3c4318bd3e29e2b3dd693e3e150cb7c48360e
