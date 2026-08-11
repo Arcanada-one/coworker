@@ -5,7 +5,7 @@ name: dependabot-auto-merge
 #
 # Design notes, both learned the hard way in SEC-0039:
 #
-#  1. It reacts to check_suite completion instead of waiting for CI. An earlier
+#  1. It reacts to CI completion (workflow_run) instead of waiting for CI. An earlier
 #     version blocked on `gh pr checks --watch`; this org has a single shared
 #     ci-general runner, so the waiting job occupied the only runner while the
 #     CI it waited for starved behind it. Reacting costs seconds, never blocks.
@@ -21,7 +21,11 @@ name: dependabot-auto-merge
 # human decision — a dependency bot must not rewrite CI or ownership unremarked.
 
 on:
-  check_suite:
+  workflow_run:
+    # Named explicitly per repository: workflow_run cannot glob, and check_suite
+    # does NOT fire for Actions-created suites (anti-recursion rule) — verified
+    # empirically in SEC-0039, the check_suite revision never triggered.
+    workflows: ["ci", "public-surface"]
     types: [completed]
 
 permissions:
@@ -37,7 +41,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.check_suite.head_sha }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
@@ -63,7 +67,7 @@ jobs:
             # Fail closed: anything that does not parse as an unambiguous
             # same-major bump is left alone. Title parsing is used because
             # dependabot/fetch-metadata needs a pull_request context, which a
-            # check_suite event does not carry.
+            # workflow_run event does not carry.
             if [[ "$title" =~ from\ ([0-9]+)\.([0-9]+)\.?([0-9]*)[^\ ]*\ to\ ([0-9]+)\.([0-9]+)\.?([0-9]*) ]]; then
               from_major="${BASH_REMATCH[1]}"; to_major="${BASH_REMATCH[4]}"
               from_minor="${BASH_REMATCH[2]}"
