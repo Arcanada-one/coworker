@@ -15,4 +15,7 @@ permissions:
 
 jobs:
   governance:
-    uses: Arcanada-one/shared-workflows/.github/workflows/governance-diff-guard.yml@b0c2418747f74ce4dfcadea3652e56abfe993465
+    name: governance-diff-guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Arcanada-one/shared-workflows/.github/actions/governance-diff-guard@11cbbf2e5235ddc322b8f344836ea6ed4c67b0a2
