@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. Format follows 
 
 ### Added
 
+- **`coworker stats --export {csv,markdown}` is documented.** The exporter shipped without a README entry; the `stats` usage block, the flag description and two worked examples (spreadsheet CSV, monthly Markdown report) are now in the README alongside the `text`/`json` formats.
+
 - **`coworker rtk status` warns when the Cursor hook is registered but cursor-agent is absent.** The Cursor parity row already reports the native `beforeShellExecution` hook state honestly; the status command now additionally detects whether the `cursor-agent` binary is on PATH and, when the hook is registered without it, prints a stderr note that token reduction will not apply until Cursor CLI is installed — so operators do not overestimate savings on machines where Cursor is not set up.
 
 - **Global retry policy with exponential backoff.** Every `ask`/`write` call now retries retryable provider errors (HTTP 429 rate limit / request timeout) up to `max_retries` times per provider (default 2, i.e. 3 attempts) with exponential backoff (`retry_base_delay` default 1.0s, doubled per retry). Configure per profile (`max_retries` / `retry_base_delay` in `profiles.yaml`) or globally via `COWORKER_MAX_RETRIES` / `COWORKER_RETRY_BASE_DELAY` (profile wins). The existing single-flight `fallback_provider` hop now fires only after the primary's budget is exhausted, and the fallback gets its own budget. Fail-loud is preserved: balance (402)/auth/generic errors are never retried, and exhaustion prints `provider <name> failed after N attempt(s) — retry budget exhausted (...)` to stderr before the non-zero exit. `max_retries: 0` restores the previous single-attempt behavior.
