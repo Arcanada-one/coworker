@@ -1,3 +1,3 @@
 """Vendor-neutral CLI to delegate bulk I/O off your reasoning model."""
 
-__version__ = "0.8.2"
+__version__ = "0.9.0"
