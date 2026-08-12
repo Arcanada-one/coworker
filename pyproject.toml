@@ -28,6 +28,11 @@ dev = [
   "ruff>=0.6",
   "pytest>=8",
   "pip-audit>=2.7",
+  # tests/test_balance_error.py imports httpx directly. It used to arrive
+  # transitively through openai, until openai 3.0.0 swapped httpx for httpx2 in
+  # its core dependencies — at which point CI went red on a tree nobody had
+  # touched. A module a test imports is a dependency that test declares.
+  "httpx>=0.23",
 ]
 
 [project.scripts]
