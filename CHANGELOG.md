@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-12
+
 ### Added
 
 - **Scheduled live-integration CI.** A new `live-integration` GitHub Actions workflow runs the gated Moonshot + DeepSeek live suite (`tests/test_rtk_live.py`) weekly and on manual dispatch, off the PR/push path so real quota and secrets are never spent or exposed on a pull request. After the provider calls it measures real spend via `coworker stats` and enforces a weekly USD cost cap (`dev-tools/ci_cost_cap.py`): at or above the cap the run fails with a warning annotation. Required repo secrets and the cost-cap variable are documented in [`docs/live-integration.md`](docs/live-integration.md).
@@ -24,6 +26,7 @@ All notable changes to this project are documented in this file. Format follows 
 ### Fixed
 
 - **Codex RTK parity now activates on Linux when only an existing `~/.profile` is present.** The Codex-only PATH gate matches the platform-independent `/.codex/tmp/arg0/codex-arg0` suffix, and `status`/`disable` inspect the same Linux fallback profile without creating new dotfiles.
+- **`httpx` is now declared as a test dependency.** It had been arriving transitively through `openai`; `openai` 3.0.0 replaced `httpx` with `httpx2` in its core dependencies, so the transitive path disappeared and the test suite stopped collecting. The unit suite passes against `openai` 3.0.0.
 - **The Codex shim settings probe no longer resolves through the shim directory.** It uses `command -p grep`, preserving the 0.8.1 fork-bomb fix while avoiding a hardcoded `/usr/bin/grep` path on systems with a different standard utility layout. The hardening follows the independent report and patch by external contributor `chetwerikoff` (coworker#6).
 
 ## [0.8.2] — 2026-07-08

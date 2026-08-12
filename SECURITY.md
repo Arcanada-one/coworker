@@ -40,7 +40,8 @@ they may publicly disclose without further coordination.
 
 | Version | Supported |
 |---------|-----------|
-| `v0.8.x` (latest: `v0.8.2`) | yes |
+| `v0.9.x` (latest: `v0.9.0`) | yes |
+| `v0.8.x` | no — upgrade to the latest minor |
 | older `v0.x` tags | no — upgrade to the latest minor |
 
 ## CI Gate Floor
