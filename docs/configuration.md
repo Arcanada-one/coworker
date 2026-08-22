@@ -52,6 +52,10 @@ single-flight hop — the fallback is tried once; if it also fails the error pro
 that would fail identically on any provider (balance-exhausted 402, auth, malformed request)
 are never retried and surface immediately. Omit `fallback_provider` to keep fail-loud behavior.
 
+For cost-controlled automatic delegation, pin every enabled profile to the
+same provider/model and omit both fallback keys. Arcanada uses
+`deepseek` / `deepseek-v4-flash`; explicit CLI flags remain manual overrides.
+
 ## Retry policy
 
 Every `coworker ask` / `coworker write` call applies a global retry policy on
