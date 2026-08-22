@@ -15,6 +15,12 @@ For Arcanada's cost-sensitive default, set `COWORKER_DEFAULT_PROVIDER=deepseek`.
 Profiles with `recommended_provider: deepseek` already route to DeepSeek even
 when the environment fallback is different.
 
+Arcanada's enabled automatic profiles pin both `recommended_provider: deepseek`
+and `recommended_model: deepseek-v4-flash`. They intentionally omit
+`fallback_provider`: after bounded retries, a DeepSeek failure is reported
+loudly instead of sending delegated material to another provider or model.
+Explicit `--provider` and `--model` flags remain operator-controlled overrides.
+
 If the resolved name is not a key in `providers.yaml`, `coworker` prints `unknown provider 'X'` and exits with code 1.
 
 ## Per-provider notes
@@ -32,8 +38,9 @@ If the resolved name is not a key in `providers.yaml`, `coworker` prints `unknow
 - **Prefix cache:** automatic. `cache_input` discount roughly 10× over uncached input.
 - `deepseek-chat` and `deepseek-reasoner` are legacy aliases scheduled for
   retirement on 2026-07-24 15:59 UTC; prefer the explicit V4 model names.
-- For reasoning-heavy work, override with `--model deepseek-v4-pro` or set
-  `recommended_model: deepseek-v4-pro` on the relevant profile.
+- Automatic delegation should remain on `deepseek-v4-flash`; reasoning-heavy
+  work stays with the selected primary agent rather than switching coworker to
+  a more expensive model.
 
 ### Groq
 
