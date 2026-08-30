@@ -18,4 +18,4 @@ jobs:
     name: governance-diff-guard
     runs-on: ubuntu-latest
     steps:
-      - uses: Arcanada-one/shared-workflows/.github/actions/governance-diff-guard@11cbbf2e5235ddc322b8f344836ea6ed4c67b0a2
+      - uses: Arcanada-one/shared-workflows/.github/actions/governance-diff-guard@0dec9a70b4796928c383ccf4438be19367f7ad3b
