@@ -14,6 +14,18 @@
 #   * Missing store file       → use embedded default allowlist.
 #   * Malformed JSON in store  → stderr WARN + use embedded default allowlist.
 #   * Empty command            → forward to rtk (let upstream decide).
+#   * rtk binary not on PATH    → stderr WARN once + emit a plain `allow` so
+#                                 the agent keeps working un-reduced.
+#
+# That last case is not hypothetical. Claude Code runs PreToolUse hooks with a
+# stripped environment, so `~/.local/bin` (Linux) or Homebrew's bin (macOS) is
+# often absent from PATH even though an interactive shell finds `rtk` fine.
+# Calling it by bare name then dies with 127 and an empty stdout: the agent sees
+# `rtk: command not found` on every bulk command, and token reduction is silently
+# off while the hook still reports itself as installed (measured on three hosts,
+# 2026-08-31). Resolving the path explicitly, and degrading to `allow` when it
+# genuinely cannot be found, keeps the failure loud in stderr and harmless to the
+# agent.
 #
 # The allowlist is substring-matched (not regex), case-sensitive. Default
 # patterns mirror coworker/plugins/rtk_passthrough.py DEFAULT_PATTERNS.
@@ -21,6 +33,38 @@
 set -u
 
 STORE_PATH="${COWORKER_RTK_PASSTHROUGH_PATH:-$HOME/.config/coworker/rtk-passthrough.json}"
+
+# Resolve rtk before anything else. A hook inherits whatever PATH the agent
+# runtime hands it, which routinely excludes the user bin directories, so a bare
+# `rtk` is not a safe call here. COWORKER_RTK_BIN lets an operator pin it.
+RTK_BIN="${COWORKER_RTK_BIN:-}"
+if [ -z "$RTK_BIN" ]; then
+    for _candidate in \
+        "$(command -v rtk 2>/dev/null || true)" \
+        "$HOME/.local/bin/rtk" \
+        "/opt/homebrew/bin/rtk" \
+        "/usr/local/bin/rtk" \
+        "$HOME/.cargo/bin/rtk"
+    do
+        if [ -n "$_candidate" ] && [ -x "$_candidate" ]; then
+            RTK_BIN="$_candidate"
+            break
+        fi
+    done
+fi
+
+# Forward stdin to rtk, or degrade to a plain allow if rtk cannot be found.
+# Never exit non-zero on account of a missing binary: this hook sits in front of
+# every Bash call the agent makes, and failing it closed would break the agent
+# over a token-saving optimisation that is, by design, optional.
+forward_to_rtk() {
+    if [ -z "$RTK_BIN" ]; then
+        echo "[rtk-signal-guard] WARN: rtk not found on PATH or in the usual bin directories; passing through without token reduction. Set COWORKER_RTK_BIN to pin it." >&2
+        printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"rtk unavailable — passthrough without reduction"}}\n'
+        return 0
+    fi
+    printf '%s' "$input" | "$RTK_BIN" hook claude
+}
 
 # Embedded defaults — single source of truth in rtk_passthrough.py.
 # Keep in sync via the seed_default() call at `coworker rtk enable`.
@@ -65,13 +109,13 @@ input=$(cat)
 # Resolve command from stdin JSON. Missing jq ⇒ forward (we cannot
 # classify safely without parsing input).
 if ! command -v jq >/dev/null 2>&1; then
-    printf '%s' "$input" | rtk hook claude
+    forward_to_rtk
     exit $?
 fi
 
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // ""' 2>/dev/null)
 if [ -z "$cmd" ]; then
-    printf '%s' "$input" | rtk hook claude
+    forward_to_rtk
     exit $?
 fi
 
@@ -95,4 +139,4 @@ if [ "$match" -eq 1 ]; then
 fi
 
 # Bulk path — forward to rtk for token reduction.
-printf '%s' "$input" | rtk hook claude
+forward_to_rtk
