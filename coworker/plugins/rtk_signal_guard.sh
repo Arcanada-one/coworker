@@ -37,8 +37,18 @@ STORE_PATH="${COWORKER_RTK_PASSTHROUGH_PATH:-$HOME/.config/coworker/rtk-passthro
 # Resolve rtk before anything else. A hook inherits whatever PATH the agent
 # runtime hands it, which routinely excludes the user bin directories, so a bare
 # `rtk` is not a safe call here. COWORKER_RTK_BIN lets an operator pin it.
-RTK_BIN="${COWORKER_RTK_BIN:-}"
-if [ -z "$RTK_BIN" ]; then
+RTK_PIN_SET=0
+if [ "${COWORKER_RTK_BIN+x}" = x ]; then
+    RTK_PIN_SET=1
+    RTK_BIN="${COWORKER_RTK_BIN}"
+else
+    RTK_BIN=""
+fi
+if [ "$RTK_PIN_SET" -eq 1 ]; then
+    if [ -n "$RTK_BIN" ] && [ ! -x "$RTK_BIN" ]; then
+        RTK_BIN=""
+    fi
+else
     for _candidate in \
         "$(command -v rtk 2>/dev/null || true)" \
         "$HOME/.local/bin/rtk" \
