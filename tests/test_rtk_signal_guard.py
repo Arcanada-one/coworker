@@ -89,6 +89,26 @@ def test_guard_degrades_to_allow_when_rtk_is_absent(tmp_path: Path) -> None:
     assert "rtk" in result.stderr.lower(), "the degraded path must announce itself on stderr"
 
 
+def test_invalid_explicit_pin_degrades_without_global_discovery(tmp_path: Path) -> None:
+    """An invalid explicit pin must not fall through to a host-global binary."""
+    home = tmp_path / "invalid-pin-home"
+    home.mkdir()
+    missing = home / "missing" / "rtk"
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": str(missing),
+        }
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert "rtk" in result.stderr.lower()
+
+
 def test_guard_honours_an_explicit_binary_pin(tmp_path: Path, fake_rtk: Path) -> None:
     """COWORKER_RTK_BIN is the operator's escape hatch for a non-standard install."""
     home = tmp_path / "home-pin"
