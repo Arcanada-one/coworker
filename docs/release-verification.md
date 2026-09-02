@@ -11,7 +11,7 @@ coworker releases are signed with [cosign](https://docs.sigstore.dev/) (keyless 
 ## Verify recipe
 
 ```bash
-TAG=v0.7.0   # replace with the release you are verifying
+TAG=v0.9.1   # replace with the release you are verifying
 
 # 1. Download all artefacts.
 gh release download "$TAG" --repo Arcanada-one/coworker
@@ -60,7 +60,7 @@ All five steps must exit `0` for a trusted release.
 After verification, install the published distribution:
 
 ```bash
-pip install coworker-cli==0.7.0   # substitute the version you verified
+pip install coworker-cli==0.9.1   # substitute the version you verified
 ```
 
 Releases are published to PyPI via Trusted Publishing on the same tag.
