@@ -91,6 +91,18 @@ def test_add_empty_pattern_rejected(tmp_path):
     assert rp.count(store_path=store) == n_before
 
 
+def test_add_control_character_pattern_rejected(tmp_path, capsys):
+    """A newline must not split one custom entry into a broad runtime pattern."""
+    store = tmp_path / "rtk-passthrough.json"
+    rp.seed_default(store_path=store)
+    n_before = rp.count(store_path=store)
+
+    assert rp.add_pattern("git\npush", store_path=store) is False
+
+    assert rp.count(store_path=store) == n_before
+    assert "control" in capsys.readouterr().err
+
+
 def test_remove_existing_pattern_returns_true(tmp_path):
     store = tmp_path / "rtk-passthrough.json"
     rp.seed_default(store_path=store)
@@ -143,6 +155,16 @@ def test_load_patterns_malformed_json_warns_and_falls_back(tmp_path, capsys):
     assert "unreadable" in err
 
 
+def test_load_patterns_invalid_utf8_warns_and_falls_back(tmp_path, capsys):
+    store = tmp_path / "rtk-passthrough.json"
+    store.write_bytes(b'{"patterns":["git push"]}\xff')
+
+    patterns = rp.load_patterns(store_path=store)
+
+    assert patterns == sorted(set(rp.DEFAULT_PATTERNS))
+    assert "unreadable" in capsys.readouterr().err
+
+
 def test_load_patterns_wrong_shape_falls_back(tmp_path):
     store = tmp_path / "rtk-passthrough.json"
     store.write_text(json.dumps(["a", "b", "c"]))  # top-level list, not dict
@@ -156,6 +178,14 @@ def test_load_patterns_empty_patterns_array_falls_back(tmp_path):
     patterns = rp.load_patterns(store_path=store)
     # Empty store ⇒ defaults (guard-friendly fail-safe).
     assert patterns == sorted(set(rp.DEFAULT_PATTERNS))
+
+
+def test_load_patterns_ignores_control_character_entries(tmp_path):
+    """A hand-edited newline pattern must not become separate shell lines."""
+    store = tmp_path / "rtk-passthrough.json"
+    store.write_text(json.dumps({"patterns": ["git\npush", "git tag"]}))
+
+    assert rp.load_patterns(store_path=store) == ["git tag"]
 
 
 # ---------- env-var override ----------

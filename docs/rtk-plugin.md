@@ -237,9 +237,24 @@ real binary without RTK rewriting.
 | `gh api`        | Raw API response; rewriting breaks JSON parsing downstream.    |
 | `gh run`        | CI run status is signal.                                       |
 
-Substring match against `tool_input.command` (case-sensitive). A
-single hit anywhere in the command string is enough: e.g.
-`cd /tmp/repo && git push origin main` matches `git push`.
+Patterns are case-sensitive literal command prefixes on shell-word
+boundaries. Each simple command is parsed without `eval`; recognised Git and
+GitHub CLI global options are removed before matching. All of these therefore
+match their existing patterns:
+
+```bash
+git push origin main
+git -C /tmp/repo status --short
+gh --repo owner/repo pr list
+gh --hostname github.example api user
+cd /tmp/repo && git push origin main
+```
+
+Argument text is never promoted to a subcommand: `git log '--format=git push'`
+stays on RTK, as does `git -C /tmp/repo log -p`. Unknown or malformed global
+option shapes also stay on RTK rather than being guessed. Custom entries use
+the same literal prefix contract, so shell metacharacters in a pattern are data
+and are never evaluated.
 
 ### CRUD workflow
 
@@ -252,18 +267,20 @@ coworker rtk passthrough remove 'git tag'      # remove default if not wanted
 Store: `~/.config/coworker/rtk-passthrough.json`. Idempotent — re-running
 `add` for an existing pattern is a no-op. `remove` against a non-present
 pattern is a no-op (exit 0, single stderr note). The file is rewritten
-atomically (temp + rename).
+atomically (temp + rename). Empty entries and entries containing C0/C1 control
+characters are rejected; runtime readers apply the same filter to hand-edited
+stores so one JSON string cannot split into multiple allowlist lines.
 
 ### Fallback behaviour
 
-- **`jq` not installed.** The bash guard falls back to embedded defaults
-  (the 13 patterns above), warns once on stderr, and continues
-  unchanged. The user does not see a broken terminal.
+- **`jq` not installed.** The Claude bash guard cannot parse hook JSON safely,
+  so it sends the command through RTK instead of guessing. Generated Codex
+  shims already receive separated arguments and use the embedded defaults.
 - **Store missing or malformed.** Same fallback. Operators can repair
   with `coworker rtk passthrough list` (regenerates from defaults if
   the file is unrecoverable) or by deleting the file (next CRUD call
   reseeds).
-- **Env-var override.** `COWORKER_RTK_PASSTHROUGH_STORE=/path/to/json`
+- **Env-var override.** `COWORKER_RTK_PASSTHROUGH_PATH=/path/to/json`
   redirects the guard to an alternate store (useful for CI sandboxes,
   multi-user hosts, or per-project allowlists).
 
@@ -271,11 +288,12 @@ atomically (temp + rename).
 
 The same passthrough allowlist applies to commands invoked through
 Codex CLI: the `git` and `gh` shims in `rtk_codex_shims.py` inject the
-passthrough snippet before delegating to the real binary. A `git push`
-issued through Codex sees the same passthrough treatment as one
-issued through Claude Code. Bulk-bearing shims (`ls`, `grep`, `find`)
-are untouched — no per-call overhead, since none of those carry
-signal markers anyway.
+passthrough snippet before delegating to the real binary. A `git push` or
+`git -C /repo push` issued through Codex sees the same passthrough treatment as
+one issued through Claude Code. The shims receive an already-separated argument
+vector and never reconstruct it for substring matching. Bulk-bearing shims
+(`ls`, `grep`, `find`) are untouched — no per-call overhead, since none of those
+carry signal markers anyway.
 
 ### v1 → v2 settings.json migration
 
