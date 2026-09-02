@@ -681,7 +681,7 @@ def test_git_shim_discards_partial_jq_output_from_malformed_store(isolated, tmp_
     store = tmp_path / "passthrough.json"
     # jq streams the complete first value before failing on the second one.
     store.write_text('{"patterns":["git"]}\n{')
-    jq = shutil.which("jq")
+    jq = shutil.which("jq", path=os.defpath)
     assert jq is not None, "jq is required to verify generated-shim parsing"
     jq_result = subprocess.run(
         [
