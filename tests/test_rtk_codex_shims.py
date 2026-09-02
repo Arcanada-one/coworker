@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -670,6 +671,52 @@ def test_git_shim_malformed_store_falls_back_for_global_option_signal(isolated, 
     assert result.returncode == 0, result.stderr
     assert "real-git" in result.stdout
     assert "rtk-mock" not in result.stdout
+
+
+def test_git_shim_discards_partial_jq_output_from_malformed_store(isolated, tmp_path):
+    """A late parse error must not retain an earlier broad pattern."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    store = tmp_path / "passthrough.json"
+    # jq streams the complete first value before failing on the second one.
+    store.write_text('{"patterns":["git"]}\n{')
+    jq = shutil.which("jq")
+    assert jq is not None, "jq is required to verify generated-shim parsing"
+    jq_result = subprocess.run(
+        [
+            jq,
+            "-re",
+            '.patterns[]? | strings | select(test("[[:cntrl:]]") | not)',
+            str(store),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert jq_result.returncode != 0
+    assert jq_result.stdout.splitlines() == ["git"]
+    shim_file = tmp_path / "git-partial-jq-output-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "log", "-p"],
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(isolated["fake_home"]),
+            "PATH": os.pathsep.join((str(Path(jq).parent), "/usr/bin", "/bin")),
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rtk-mock" in result.stdout
+    assert "real-git" not in result.stdout
 
 
 def test_git_shim_never_executes_custom_pattern_text(isolated, tmp_path):

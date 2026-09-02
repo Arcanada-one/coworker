@@ -206,8 +206,11 @@ pattern_matches_normalized() {{
 NORMALIZED_WORDS=()
 normalize_invocation {cmd!r} "$@" || NORMALIZED_WORDS=()
 if command -v jq >/dev/null 2>&1 && [ -f "$PASSTHROUGH_STORE" ]; then
-    _patterns=$(jq -re '.patterns[]? | strings | select(test("[[:cntrl:]]") | not)' "$PASSTHROUGH_STORE" 2>/dev/null || echo "$DEFAULT_PASSTHROUGH")
-    [ -z "$_patterns" ] && _patterns="$DEFAULT_PASSTHROUGH"
+    if _patterns=$(jq -re '.patterns[]? | strings | select(test("[[:cntrl:]]") | not)' "$PASSTHROUGH_STORE" 2>/dev/null); then
+        [ -n "$_patterns" ] || _patterns="$DEFAULT_PASSTHROUGH"
+    else
+        _patterns="$DEFAULT_PASSTHROUGH"
+    fi
 else
     _patterns="$DEFAULT_PASSTHROUGH"
 fi
