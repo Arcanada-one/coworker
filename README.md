@@ -56,7 +56,7 @@ Requires Python 3.10+. No system packages.
 pip install coworker-cli
 ```
 
-Or pin a specific release: `pip install coworker-cli==0.6.3`. To install straight
+Or pin a specific release: `pip install coworker-cli==0.9.1`. To install straight
 from source instead: `pip install git+https://github.com/Arcanada-one/coworker`.
 
 The distribution is named `coworker-cli` on PyPI; the installed command stays
