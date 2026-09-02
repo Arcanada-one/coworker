@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-09-02
+
+### Fixed
+
+- **RTK passthrough recognises Git and GitHub CLI global options.** The Claude signal guard and generated Codex `git`/`gh` shims now locate the true subcommand after value-taking global options such as `git -C /repo push`, `git -C /repo status`, `gh --repo owner/repo pr`, and `gh --hostname host api`. Direct and compound forms remain supported, and missing or malformed stores still fall back to the embedded defaults.
+
+### Security
+
+- **Signal matching is structural instead of substring-based.** Allowlist entries now match literal command prefixes on shell-word boundaries, so signal text inside an argument (for example `git log '--format=git push'`) cannot bypass RTK. The guard uses a non-executing shell lexer, generated shims consume their existing argument vectors, custom pattern metacharacters remain inert data, C0/C1 controls are rejected, and unknown or malformed option shapes fail safe to RTK.
+
 ## [0.9.0] — 2026-08-12
 
 ### Added

@@ -100,10 +100,11 @@ _PASSTHROUGH_AWARE_CMDS: frozenset[str] = frozenset({"git", "gh"})
 
 
 def _passthrough_snippet(cmd: str) -> str:
-    """Bash snippet that scans the reconstructed command line against the
-    passthrough allowlist. Inserted between marker-probe and rtk exec for
-    signal-aware shims only. Substring match, falls back to embedded
-    defaults when the store is absent or unparseable.
+    """Bash snippet that structurally matches the command invocation.
+
+    Inserted between marker-probe and rtk exec for signal-aware shims only.
+    Recognised git/gh global options are removed before a literal command-prefix
+    match. The store falls back to embedded defaults when absent or unparseable.
     """
     return f"""# Signal/bulk passthrough check (jq-based; fallback to embedded defaults).
 PASSTHROUGH_STORE="${{COWORKER_RTK_PASSTHROUGH_PATH:-$HOME/.config/coworker/rtk-passthrough.json}}"
@@ -120,18 +121,101 @@ gh issue
 gh release
 gh api
 gh run'
-FULL_CMDLINE={cmd!r}' '"$*"
+
+# Set NORMALIZED_WORDS to the executable, true subcommand, and remaining argv.
+# Only known global options with valid non-empty values are skipped. Unknown or
+# malformed options fail closed to RTK, and no command text is ever evaluated.
+normalize_invocation() {{
+    [ "$#" -gt 0 ] || return 1
+    _normal_tool=$1
+    shift
+    case "$_normal_tool" in
+        git|*/git)
+            _normal_tool=git
+            while [ "$#" -gt 0 ]; do
+                case "$1" in
+                    -C|--git-dir|--work-tree|--namespace|--super-prefix|--attr-source)
+                        [ "$#" -ge 2 ] && [ -n "$2" ] || return 1
+                        shift 2
+                        ;;
+                    -c)
+                        [ "$#" -ge 2 ] || return 1
+                        case "$2" in ?*=*) ;; *) return 1 ;; esac
+                        shift 2
+                        ;;
+                    --config-env)
+                        [ "$#" -ge 2 ] || return 1
+                        case "$2" in ?*=?*) ;; *) return 1 ;; esac
+                        shift 2
+                        ;;
+                    -C?*|-c?*=*|--git-dir=?*|--work-tree=?*|--namespace=?*|--super-prefix=?*|--attr-source=?*)
+                        shift
+                        ;;
+                    --config-env=?*=?*)
+                        shift
+                        ;;
+                    -c?*|--git-dir=*|--work-tree=*|--namespace=*|--super-prefix=*|--config-env=*|--attr-source=*) return 1 ;;
+                    -p|-P|--paginate|--no-pager|--no-replace-objects|--bare|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--no-lazy-fetch)
+                        shift
+                        ;;
+                    --) shift; break ;;
+                    -*) return 1 ;;
+                    *) break ;;
+                esac
+            done
+            ;;
+        gh|*/gh)
+            _normal_tool=gh
+            while [ "$#" -gt 0 ]; do
+                case "$1" in
+                    --repo|-R|--hostname)
+                        [ "$#" -ge 2 ] && [ -n "$2" ] || return 1
+                        shift 2
+                        ;;
+                    --repo=?*|-R?*|--hostname=?*) shift ;;
+                    --repo=*|--hostname=*) return 1 ;;
+                    --) shift; break ;;
+                    -*) return 1 ;;
+                    *) break ;;
+                esac
+            done
+            ;;
+    esac
+
+    [ "$#" -gt 0 ] || return 1
+    NORMALIZED_WORDS=("$_normal_tool")
+    while [ "$#" -gt 0 ]; do
+        NORMALIZED_WORDS+=("$1")
+        shift
+    done
+}}
+
+pattern_matches_normalized() {{
+    _pattern_words=()
+    IFS=" " read -r -a _pattern_words <<< "$1"
+    _pattern_len=${{#_pattern_words[@]}}
+    [ "$_pattern_len" -gt 0 ] || return 1
+    [ "$_pattern_len" -le "${{#NORMALIZED_WORDS[@]}}" ] || return 1
+    _pattern_i=0
+    while [ "$_pattern_i" -lt "$_pattern_len" ]; do
+        [ "${{_pattern_words[$_pattern_i]}}" = "${{NORMALIZED_WORDS[$_pattern_i]}}" ] || return 1
+        _pattern_i=$((_pattern_i + 1))
+    done
+}}
+
+NORMALIZED_WORDS=()
+normalize_invocation {cmd!r} "$@" || NORMALIZED_WORDS=()
 if command -v jq >/dev/null 2>&1 && [ -f "$PASSTHROUGH_STORE" ]; then
-    _patterns=$(jq -re '.patterns[]?' "$PASSTHROUGH_STORE" 2>/dev/null || echo "$DEFAULT_PASSTHROUGH")
+    _patterns=$(jq -re '.patterns[]? | strings | select(test("[[:cntrl:]]") | not)' "$PASSTHROUGH_STORE" 2>/dev/null || echo "$DEFAULT_PASSTHROUGH")
     [ -z "$_patterns" ] && _patterns="$DEFAULT_PASSTHROUGH"
 else
     _patterns="$DEFAULT_PASSTHROUGH"
 fi
 while IFS= read -r _pat; do
     [ -z "$_pat" ] && continue
-    case "$FULL_CMDLINE" in
-        *"$_pat"*) exec "$REAL_BIN" "$@" ;;
-    esac
+    if pattern_matches_normalized "$_pat"; then
+        exec "$REAL_BIN" "$@"
+    fi
 done <<PASSTHROUGH_EOF
 $_patterns
 PASSTHROUGH_EOF

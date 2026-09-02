@@ -24,6 +24,10 @@ GUARD = Path(__file__).resolve().parent.parent / "coworker" / "plugins" / "rtk_s
 BULK_INPUT = json.dumps({"tool_name": "Bash", "tool_input": {"command": "cat /etc/hostname"}})
 
 
+def bash_input(command: str) -> str:
+    return json.dumps({"tool_name": "Bash", "tool_input": {"command": command}})
+
+
 def run_guard(env: dict[str, str], stdin: str = BULK_INPUT) -> subprocess.CompletedProcess[str]:
     """Invoke the guard with a fully controlled environment (no inheritance)."""
     return subprocess.run(
@@ -140,6 +144,238 @@ def test_allowlisted_command_never_reaches_rtk(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["hookSpecificOutput"]["permissionDecision"] == "allow"
     assert "signal command" in payload["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_guard_preserves_signal_command_after_shell_separator(tmp_path: Path) -> None:
+    """The documented ``cd ... && git push`` direct form remains passthrough."""
+    home = tmp_path / "compound-command-home"
+    home.mkdir()
+
+    result = run_guard(
+        {"PATH": "/usr/bin:/bin", "HOME": str(home), "COWORKER_RTK_BIN": ""},
+        stdin=bash_input("cd /tmp/repo && git push origin main"),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert "signal command" in payload["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "git -C /repo push origin main",
+        "git -C /repo status --short",
+        "gh --repo owner/repo pr list",
+        "gh --hostname github.example api user",
+    ),
+)
+def test_guard_allows_signal_subcommand_after_global_options(
+    tmp_path: Path, command: str
+) -> None:
+    """Global options must not hide the git/gh signal subcommand."""
+    home = tmp_path / "global-option-home"
+    home.mkdir()
+
+    result = run_guard(
+        {"PATH": "/usr/bin:/bin", "HOME": str(home), "COWORKER_RTK_BIN": ""},
+        stdin=bash_input(command),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert "signal command" in payload["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize(
+    "command",
+    ("git -C /repo log -p", "git -C '/repo push' log -p"),
+)
+def test_guard_delegates_bulk_subcommand_after_git_global_option(
+    tmp_path: Path, fake_rtk: Path, command: str
+) -> None:
+    """Skipping ``-C`` and its whole value must leave bulk log on RTK."""
+    home = tmp_path / "global-option-bulk-home"
+    home.mkdir()
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": str(fake_rtk),
+        },
+        stdin=bash_input(command),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecisionReason"] == "FAKE-RTK-RAN"
+
+
+def test_guard_does_not_match_signal_text_inside_argument(
+    tmp_path: Path, fake_rtk: Path
+) -> None:
+    """An argument containing ``git push`` is data, not a push subcommand."""
+    home = tmp_path / "argument-text-home"
+    home.mkdir()
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": str(fake_rtk),
+        },
+        stdin=bash_input("git log '--format=git push'"),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecisionReason"] == "FAKE-RTK-RAN"
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        "git 'push --help'",
+        "git -c push status",
+        "gh --repo '' pr list",
+    ),
+)
+def test_guard_rejects_word_boundary_and_malformed_option_false_positives(
+    tmp_path: Path, fake_rtk: Path, command: str
+) -> None:
+    home = tmp_path / "structural-negative-home"
+    home.mkdir()
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": str(fake_rtk),
+        },
+        stdin=bash_input(command),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecisionReason"] == "FAKE-RTK-RAN"
+
+
+def test_guard_custom_pattern_compares_complete_argument_words(
+    tmp_path: Path, fake_rtk: Path
+) -> None:
+    home = tmp_path / "custom-word-boundary-home"
+    home.mkdir()
+    store = tmp_path / "passthrough.json"
+    store.write_text(json.dumps({"patterns": ["git log --format=%H"]}))
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": str(fake_rtk),
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        stdin=bash_input("git log '--format=%H %s'"),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecisionReason"] == "FAKE-RTK-RAN"
+
+
+def test_guard_applies_custom_pattern_after_git_global_option(tmp_path: Path) -> None:
+    """Operator patterns remain structural matches after option normalisation."""
+    home = tmp_path / "custom-pattern-home"
+    home.mkdir()
+    store = tmp_path / "passthrough.json"
+    store.write_text(json.dumps({"patterns": ["git tag"]}))
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": "",
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        stdin=bash_input("git -C /repo tag v1.2.3"),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert "signal command" in payload["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_guard_malformed_store_falls_back_for_global_option_signal(tmp_path: Path) -> None:
+    """Malformed operator data must retain the embedded global-option defaults."""
+    home = tmp_path / "malformed-store-home"
+    home.mkdir()
+    store = tmp_path / "passthrough.json"
+    store.write_text("{not-json")
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": "",
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        stdin=bash_input("git -C /repo push origin main"),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert "signal command" in payload["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "using defaults" in result.stderr
+
+
+def test_guard_never_executes_custom_pattern_text(tmp_path: Path, fake_rtk: Path) -> None:
+    """Shell metacharacters in an operator pattern remain inert literal data."""
+    home = tmp_path / "literal-pattern-home"
+    home.mkdir()
+    canary = tmp_path / "pattern-was-executed"
+    store = tmp_path / "passthrough.json"
+    store.write_text(json.dumps({"patterns": [f"$(touch {canary})"]}))
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": str(fake_rtk),
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        stdin=bash_input("git log -p"),
+    )
+
+    assert result.returncode == 0
+    assert not canary.exists()
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecisionReason"] == "FAKE-RTK-RAN"
+
+
+def test_guard_ignores_newline_pattern_that_would_broaden_to_git(
+    tmp_path: Path, fake_rtk: Path
+) -> None:
+    """One JSON string containing a newline must not become pattern ``git``."""
+    home = tmp_path / "newline-pattern-home"
+    home.mkdir()
+    store = tmp_path / "passthrough.json"
+    store.write_text(json.dumps({"patterns": ["git\npush"]}))
+
+    result = run_guard(
+        {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(home),
+            "COWORKER_RTK_BIN": str(fake_rtk),
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        stdin=bash_input("git log -p"),
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["hookSpecificOutput"]["permissionDecisionReason"] == "FAKE-RTK-RAN"
 
 
 @pytest.mark.skipif(not os.path.exists("/bin/bash"), reason="needs bash")

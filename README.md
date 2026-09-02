@@ -233,7 +233,7 @@ coworker plugins install <name>       # run a plugin's install hook (prints inst
 
 Each plugin also keeps its own top-level subcommand (e.g. `coworker rtk enable`). See [`docs/plugins.md`](docs/plugins.md) for the plugin contract and how to author one.
 
-- **`coworker rtk`** — opt-in integration with [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk). Default-off. `coworker rtk enable` (since v0.6.0) installs a two-step `PreToolUse` chain: a vendored passthrough guard that short-circuits 13 default signal-bearing git/gh commands (`git push`, `git status`, `gh release`, …) so they execute against the real binary without RTK rewriting, then the standard RTK hook for everything else. CRUD surface: `coworker rtk passthrough add|list|remove`. See [`docs/rtk-plugin.md`](docs/rtk-plugin.md) § Signal / bulk passthrough for the full default allowlist and effectiveness table. One-time Codex hook approval prompt on first session after enable.
+- **`coworker rtk`** — opt-in integration with [Rust Token Killer (RTK)](https://github.com/rtk-ai/rtk). Default-off. `coworker rtk enable` (since v0.6.0) installs a two-step `PreToolUse` chain: a vendored passthrough guard that structurally short-circuits 13 default signal-bearing git/gh commands (`git push`, `git -C /repo status`, `gh --repo owner/repo pr`, …) so they execute against the real binary without RTK rewriting, then the standard RTK hook for everything else. CRUD surface: `coworker rtk passthrough add|list|remove`. See [`docs/rtk-plugin.md`](docs/rtk-plugin.md) § Signal / bulk passthrough for the full default allowlist and effectiveness table. One-time Codex hook approval prompt on first session after enable.
 
 ### Runtime parity
 

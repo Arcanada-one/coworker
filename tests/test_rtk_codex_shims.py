@@ -6,6 +6,7 @@ SHIM_DIR / CODEX_CONFIG / HOME.
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import stat
@@ -28,7 +29,7 @@ def isolated(monkeypatch, tmp_path: Path):
     # Fake real binaries for a couple of commands.
     bin_dir = tmp_path / "fake-bin"
     bin_dir.mkdir()
-    for cmd in ("ls", "git", "grep"):
+    for cmd in ("ls", "git", "grep", "gh"):
         real = bin_dir / cmd
         real.write_text(f"#!/bin/bash\necho real-{cmd}\n")
         real.chmod(0o755)
@@ -432,4 +433,301 @@ def test_git_shim_delegates_to_rtk_on_bulk_command(isolated, tmp_path):
     assert "rtk-mock" in result.stdout, (
         f"bulk command must delegate to rtk, got stdout={result.stdout!r}"
     )
+    assert "real-git" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "args",
+    (
+        ("-C", "/repo", "push", "origin", "main"),
+        ("-C", "/repo", "status", "--short"),
+    ),
+)
+def test_git_shim_executes_real_binary_for_signal_after_global_option(
+    isolated, tmp_path, args
+):
+    """The shim must locate push/status after git's value-taking ``-C``."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    shim_file = tmp_path / "git-global-option-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), *args],
+        capture_output=True,
+        text=True,
+        env={"HOME": str(isolated["fake_home"]), "PATH": "/usr/bin:/bin"},
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "real-git" in result.stdout
+    assert "rtk-mock" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "args",
+    (
+        ("--repo", "owner/repo", "pr", "list"),
+        ("--hostname", "github.example", "api", "user"),
+    ),
+)
+def test_gh_shim_executes_real_binary_for_signal_after_global_option(
+    isolated, tmp_path, args
+):
+    """The shim must locate pr/api after gh's value-taking global options."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    shim_file = tmp_path / "gh-global-option-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("gh", str(isolated["fake_bin"] / "gh"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), *args],
+        capture_output=True,
+        text=True,
+        env={"HOME": str(isolated["fake_home"]), "PATH": "/usr/bin:/bin"},
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "real-gh" in result.stdout
+    assert "rtk-mock" not in result.stdout
+
+
+def test_git_shim_global_option_bulk_command_still_delegates_to_rtk(isolated, tmp_path):
+    """Recognising ``-C`` must not turn ``git log -p`` into passthrough."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    shim_file = tmp_path / "git-global-option-bulk-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "-C", "/repo", "log", "-p"],
+        capture_output=True,
+        text=True,
+        env={"HOME": str(isolated["fake_home"]), "PATH": "/usr/bin:/bin"},
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rtk-mock" in result.stdout
+    assert "real-git" not in result.stdout
+
+
+def test_git_shim_signal_text_inside_argument_does_not_bypass_rtk(isolated, tmp_path):
+    """The literal argument ``--format=git push`` must remain on the bulk path."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    shim_file = tmp_path / "git-argument-text-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "log", "--format=git push"],
+        capture_output=True,
+        text=True,
+        env={"HOME": str(isolated["fake_home"]), "PATH": "/usr/bin:/bin"},
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rtk-mock" in result.stdout
+    assert "real-git" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("cmd", "args"),
+    (
+        ("git", ("push --help",)),
+        ("git", ("-c", "push", "status")),
+        ("gh", ("--repo", "", "pr", "list")),
+    ),
+)
+def test_shim_rejects_word_boundary_and_malformed_option_false_positives(
+    isolated, tmp_path, cmd, args
+):
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    shim_file = tmp_path / f"{cmd}-structural-negative-shim.sh"
+    shim_file.write_text(
+        mod._shim_body(cmd, str(isolated["fake_bin"] / cmd), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), *args],
+        capture_output=True,
+        text=True,
+        env={"HOME": str(isolated["fake_home"]), "PATH": "/usr/bin:/bin"},
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rtk-mock" in result.stdout
+    assert f"real-{cmd}" not in result.stdout
+
+
+def test_git_shim_custom_pattern_compares_complete_argument_words(isolated, tmp_path):
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    store = tmp_path / "passthrough.json"
+    store.write_text(json.dumps({"patterns": ["git log --format=%H"]}))
+    shim_file = tmp_path / "git-custom-word-boundary-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "log", "--format=%H %s"],
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(isolated["fake_home"]),
+            "PATH": "/usr/bin:/bin",
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rtk-mock" in result.stdout
+    assert "real-git" not in result.stdout
+
+
+def test_git_shim_applies_custom_pattern_after_global_option(isolated, tmp_path):
+    """Custom patterns use the same normalised command prefix as defaults."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    store = tmp_path / "passthrough.json"
+    store.write_text(json.dumps({"patterns": ["git tag"]}))
+    shim_file = tmp_path / "git-custom-pattern-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "-C", "/repo", "tag", "v1.2.3"],
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(isolated["fake_home"]),
+            "PATH": "/usr/bin:/bin",
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "real-git" in result.stdout
+    assert "rtk-mock" not in result.stdout
+
+
+def test_git_shim_malformed_store_falls_back_for_global_option_signal(isolated, tmp_path):
+    """Malformed stores retain the embedded defaults after normalisation."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    store = tmp_path / "passthrough.json"
+    store.write_text("{not-json")
+    shim_file = tmp_path / "git-malformed-store-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "-C", "/repo", "push", "origin", "main"],
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(isolated["fake_home"]),
+            "PATH": "/usr/bin:/bin",
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "real-git" in result.stdout
+    assert "rtk-mock" not in result.stdout
+
+
+def test_git_shim_never_executes_custom_pattern_text(isolated, tmp_path):
+    """The generated shell treats custom pattern metacharacters literally."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    canary = tmp_path / "pattern-was-executed"
+    store = tmp_path / "passthrough.json"
+    store.write_text(json.dumps({"patterns": [f"$(touch {canary})"]}))
+    shim_file = tmp_path / "git-literal-pattern-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "log", "-p"],
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(isolated["fake_home"]),
+            "PATH": "/usr/bin:/bin",
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not canary.exists()
+    assert "rtk-mock" in result.stdout
+
+
+def test_git_shim_ignores_newline_pattern_that_would_broaden_to_git(isolated, tmp_path):
+    """A newline inside one JSON entry must not create a broad ``git`` match."""
+    mod = isolated["mod"]
+    settings = isolated["fake_home"] / ".claude" / "settings.json"
+    settings.write_text('{"_managed_by":"coworker-rtk"}')
+    store = tmp_path / "passthrough.json"
+    store.write_text(json.dumps({"patterns": ["git\npush"]}))
+    shim_file = tmp_path / "git-newline-pattern-shim.sh"
+    shim_file.write_text(
+        mod._shim_body("git", str(isolated["fake_bin"] / "git"), str(isolated["fake_rtk"]))
+    )
+    shim_file.chmod(0o755)
+
+    result = subprocess.run(
+        [str(shim_file), "log", "-p"],
+        capture_output=True,
+        text=True,
+        env={
+            "HOME": str(isolated["fake_home"]),
+            "PATH": "/usr/bin:/bin",
+            "COWORKER_RTK_PASSTHROUGH_PATH": str(store),
+        },
+        timeout=5,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "rtk-mock" in result.stdout
     assert "real-git" not in result.stdout

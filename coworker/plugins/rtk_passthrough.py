@@ -6,12 +6,13 @@ by the Codex shim layer to decide whether a tool invocation is *signal*
 `rtk hook claude`/`rtk <cmd>` for token reduction).
 
 Single source of truth: ``~/.config/coworker/rtk-passthrough.json``.
-Schema v1 — single top-level array of substring patterns:
+Schema v1 — single top-level array of command-prefix patterns:
 
     {"patterns": ["git push", "gh pr", ...]}
 
-Match algorithm at runtime is substring (`grep -F`) — see
-``rtk_signal_guard.sh``. Patterns are case-sensitive.
+At runtime patterns are case-sensitive literal prefixes on shell-word
+boundaries. Recognised git/gh global options are removed before matching — see
+``rtk_signal_guard.sh`` and ``rtk_codex_shims.py``.
 
 The store survives `coworker rtk disable` so operator-added entries are
 not lost on a temporary teardown. Only `--reset-defaults` rewinds it.
@@ -29,7 +30,7 @@ from pathlib import Path
 # Canonical default allowlist — git/gh commands whose output is a control
 # signal (single-line markers, short status, structured headers) that
 # agents read to make next-step decisions. Order is install order; the
-# guard sorts before emit. Substring match — `git push` covers
+# guard sorts before emit. Structural prefix match — `git push` covers
 # `git push -u origin <branch>`, `git push --force-with-lease`, etc.
 DEFAULT_PATTERNS: tuple[str, ...] = (
     "git push",
@@ -51,6 +52,15 @@ DEFAULT_STORE_PATH: Path = Path.home() / ".config" / "coworker" / "rtk-passthrou
 
 # Env-var override exists for testability and operator XDG_CONFIG_HOME setups.
 _ENV_STORE_PATH = "COWORKER_RTK_PASSTHROUGH_PATH"
+
+
+def _is_safe_pattern(value: object) -> bool:
+    """Return whether a store value is a non-empty, single-line string."""
+    return (
+        isinstance(value, str)
+        and bool(value.strip())
+        and not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value)
+    )
 
 
 # ---------- path resolution ----------
@@ -98,7 +108,7 @@ def _load_raw(path: Path) -> list[str]:
         return []
     try:
         data = json.loads(path.read_text() or "{}")
-    except (OSError, json.JSONDecodeError) as e:
+    except (OSError, UnicodeError, json.JSONDecodeError) as e:
         print(f"[coworker rtk] WARN: passthrough store unreadable ({e}); using defaults", file=sys.stderr)
         return []
     if not isinstance(data, dict):
@@ -107,7 +117,7 @@ def _load_raw(path: Path) -> list[str]:
     patterns = data.get("patterns")
     if not isinstance(patterns, list):
         return []
-    return [p for p in patterns if isinstance(p, str) and p.strip()]
+    return [p for p in patterns if _is_safe_pattern(p)]
 
 
 # ---------- public API ----------
@@ -145,6 +155,9 @@ def add_pattern(pattern: str, *, store_path: Path | None = None) -> bool:
     Empty/whitespace-only patterns rejected with stderr warning + return
     ``False`` (operator typo guard; not an error path).
     """
+    if any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in pattern):
+        print("[coworker rtk] WARN: pattern with control characters ignored", file=sys.stderr)
+        return False
     p = pattern.strip()
     if not p:
         print("[coworker rtk] WARN: empty pattern ignored", file=sys.stderr)
@@ -216,9 +229,9 @@ def register_passthrough(rtk_sub: argparse._SubParsersAction) -> None:
         "passthrough",
         help="Manage the signal/bulk passthrough allowlist (git/gh control-marker commands).",
         description=(
-            "Patterns added here are substring-matched against the Bash tool "
-            "command. Matches bypass `rtk hook claude` (raw stdout reaches the "
-            "agent). Defaults cover git/gh control-signal commands."
+            "Patterns added here are matched as literal command prefixes on "
+            "shell-word boundaries. Matches bypass `rtk hook claude` (raw stdout "
+            "reaches the agent). Defaults cover git/gh control-signal commands."
         ),
     )
     p_pass.add_argument(
@@ -231,10 +244,10 @@ def register_passthrough(rtk_sub: argparse._SubParsersAction) -> None:
     p_list = pass_sub.add_parser("list", help="Print current allowlist (one pattern per line, sorted).")
     p_list.set_defaults(rtk_handler=cmd_passthrough)
 
-    p_add = pass_sub.add_parser("add", help="Add a substring pattern to the allowlist.")
-    p_add.add_argument("pattern", help="Substring pattern (e.g. 'glab mr', 'git tag').")
+    p_add = pass_sub.add_parser("add", help="Add a command-prefix pattern to the allowlist.")
+    p_add.add_argument("pattern", help="Command prefix (e.g. 'glab mr', 'git tag').")
     p_add.set_defaults(rtk_handler=cmd_passthrough)
 
-    p_remove = pass_sub.add_parser("remove", help="Remove a substring pattern from the allowlist.")
+    p_remove = pass_sub.add_parser("remove", help="Remove a command-prefix pattern.")
     p_remove.add_argument("pattern", help="Exact pattern to remove.")
     p_remove.set_defaults(rtk_handler=cmd_passthrough)
