@@ -50,6 +50,8 @@ jobs:
   # (required reviewer); patch/minor flows through release-auto.
   classify:
     name: classify-bump
+    # Tag-only workflow (no pull_request). Keep on GitHub-hosted so the sibling
+    # publish job and OIDC path stay consistent with Trusted Publishing.
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -97,6 +99,9 @@ jobs:
   release:
     name: build-sign-attest-publish
     needs: [classify]
+    # Trusted Publishing (OIDC) EXCEPTION: PyPI accepts GitHub-hosted OIDC.
+    # Self-hosted runners often cannot satisfy registry OIDC the same way.
+    # Tag-gated only (v*) — merge of a CI PR does not publish.
     runs-on: ubuntu-latest
     # Conditional environment: a major bump requires the operator reviewer on
     # release-manual; patch/minor flows through release-auto (no reviewer). Both
@@ -144,7 +149,9 @@ jobs:
           set -euo pipefail
           curl -fsSL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" -o /tmp/cosign
           echo "${COSIGN_SHA256}  /tmp/cosign" | sha256sum -c -
-          sudo install -m 0755 /tmp/cosign /usr/local/bin/cosign
+          mkdir -p "${RUNNER_TEMP}/bin"
+          install -m 0755 /tmp/cosign "${RUNNER_TEMP}/bin/cosign"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
           cosign version
 
       - name: Install syft (verified binary)
@@ -154,7 +161,9 @@ jobs:
           curl -fsSL "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${asset}" -o "/tmp/${asset}"
           echo "${SYFT_SHA256}  /tmp/${asset}" | sha256sum -c -
           tar -xzf "/tmp/${asset}" -C /tmp syft
-          sudo install -m 0755 /tmp/syft /usr/local/bin/syft
+          mkdir -p "${RUNNER_TEMP}/bin"
+          install -m 0755 /tmp/syft "${RUNNER_TEMP}/bin/syft"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
           syft version
 
       - name: Build wheel + sdist

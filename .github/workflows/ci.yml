@@ -8,7 +8,9 @@ on:
 
 jobs:
   lint-test:
-    runs-on: ubuntu-latest
+    # Datarim fork deny: refuse untrusted fork PR code on org self-hosted runners.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, ci-general]
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +30,8 @@ jobs:
         run: coworker --help
 
   audit:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, ci-general]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -36,5 +39,5 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade "pip>=26.1"
       - run: pip install -e .
-      - run: pip install pip-audit
+      - run: pip install --upgrade "pip-audit" "setuptools>=84.1.0" "wheel>=0.46.2" "certifi>=2026.10.18" "opentelemetry-api>=1.45.2"
       - run: pip-audit
