@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint-test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ci-general]
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +28,7 @@ jobs:
         run: coworker --help
 
   audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, ci-general]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
