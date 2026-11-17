@@ -11,6 +11,7 @@ permissions:
 
 jobs:
   public-surface:
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
     uses: Arcanada-one/datarim/.github/workflows/public-surface-lint.yml@main
     with:
       paths: 'README.md CHANGELOG.md docs'
