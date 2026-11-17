@@ -8,6 +8,8 @@ on:
 
 jobs:
   lint-test:
+    # Datarim fork deny: refuse untrusted fork PR code on org self-hosted runners.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, ci-general]
     strategy:
       fail-fast: false
@@ -28,6 +30,7 @@ jobs:
         run: coworker --help
 
   audit:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, ci-general]
     steps:
       - uses: actions/checkout@v7

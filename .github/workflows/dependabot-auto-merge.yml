@@ -49,11 +49,11 @@ jobs:
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'dependabot/')
-    # GitHub-hosted: public repos get free unlimited hosted minutes, and the
-    # org's single self-hosted ci-general runner is permanently contended —
-    # targeting it left these jobs queued indefinitely (SEC-0039). Private-repo
-    # callers need self-hosted, since the org's PAID hosted minutes are spent.
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    # Self-hosted with same-repo head_repository guard (workflow_run fork deny).
+    # Public repos get free unlimited hosted minutes, but this job stays on the
+    # org pool with an explicit fork refuse so untrusted heads never schedule.
     runs-on: [self-hosted, Linux, X64, ci-general]
     steps:
       - name: Evaluate and merge
