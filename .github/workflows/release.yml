@@ -50,9 +50,10 @@ jobs:
   # (required reviewer); patch/minor flows through release-auto.
   classify:
     name: classify-bump
-    # Tag-only workflow (no pull_request). Keep on GitHub-hosted so the sibling
-    # publish job and OIDC path stay consistent with Trusted Publishing.
-    runs-on: ubuntu-latest
+    # Tag-only workflow (no pull_request). Self-hosted: PyPI Trusted Publishing
+    # via GitHub OIDC is expected to work on self-hosted runners
+    # (pypa/gh-action-pypi-publish README); operator forbids GitHub-hosted runners.
+    runs-on: [self-hosted, Linux, X64, ci-general]
     permissions:
       contents: read
     outputs:
@@ -99,10 +100,10 @@ jobs:
   release:
     name: build-sign-attest-publish
     needs: [classify]
-    # Trusted Publishing (OIDC) EXCEPTION: PyPI accepts GitHub-hosted OIDC.
-    # Self-hosted runners often cannot satisfy registry OIDC the same way.
-    # Tag-gated only (v*) — merge of a CI PR does not publish.
-    runs-on: ubuntu-latest
+    # PyPI Trusted Publishing via GitHub OIDC is expected to work on
+    # self-hosted runners (pypa/gh-action-pypi-publish README). Tag-gated
+    # only (v*) — merge of a CI PR does not publish.
+    runs-on: [self-hosted, Linux, X64, ci-general]
     # Conditional environment: a major bump requires the operator reviewer on
     # release-manual; patch/minor flows through release-auto (no reviewer). Both
     # environments are registered as PyPI trusted publishers (one per env value).

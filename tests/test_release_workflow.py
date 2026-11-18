@@ -162,6 +162,40 @@ def test_pypi_trusted_publishing_no_token():
     assert perms.get("id-token") == "write", "PyPI job must grant id-token: write for OIDC"
 
 
+HOSTED_PREFIXES = ("ubuntu-", "macos-", "windows-")
+REQUIRED_RUNNER_LABELS = {"self-hosted", "Linux", "X64", "ci-general"}
+
+
+def _runs_on_values(raw: object) -> list[str]:
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
+        return [str(item) for item in raw]
+    raise AssertionError(f"unexpected runs-on shape: {raw!r}")
+
+
+def test_release_jobs_refuse_github_hosted_runners():
+    """Operator order 2026-11-18: no GitHub-hosted runners; PyPI OIDC OK on self-hosted."""
+    wf = _load_workflow()
+    for name, job in wf.get("jobs", {}).items():
+        labels = _runs_on_values(job["runs-on"])
+        for label in labels:
+            assert not label.startswith(HOSTED_PREFIXES), (
+                f"job {name!r} runs-on includes GitHub-hosted label {label!r}; "
+                f"use self-hosted labels {sorted(REQUIRED_RUNNER_LABELS)}"
+            )
+        assert set(labels) == REQUIRED_RUNNER_LABELS, (
+            f"job {name!r} runs-on={labels!r}; expected exactly {sorted(REQUIRED_RUNNER_LABELS)}"
+        )
+
+
+def test_release_runner_red_control_detects_ubuntu_latest():
+    """Mutation stand: the assertion above must fail if ubuntu-latest returns."""
+    fake_labels = _runs_on_values("ubuntu-latest")
+    hosted = [label for label in fake_labels if label.startswith(HOSTED_PREFIXES)]
+    assert hosted == ["ubuntu-latest"]
+
+
 def test_github_release_published_with_all_assets():
     blob = _step_blob()
     assert "softprops/action-gh-release" in blob, "missing GitHub Release publish step"
