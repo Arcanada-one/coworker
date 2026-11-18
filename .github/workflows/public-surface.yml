@@ -12,7 +12,7 @@ permissions:
 jobs:
   public-surface:
     if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
-    uses: Arcanada-one/datarim/.github/workflows/public-surface-lint.yml@main
+    uses: Arcanada-one/datarim/.github/workflows/public-surface-lint.yml@2ef3dc606919c1b82c5fb440b49519f7f2a1e293  # v4.12.9
     with:
       paths: 'README.md CHANGELOG.md docs'
       regex_file: 'dev-tools/public-surface-forbidden.regex'
