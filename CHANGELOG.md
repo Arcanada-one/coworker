@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI lint no longer fails on shared-runner ruff UP038.** `isinstance(..., (int, float))`
+  sites now use `int | float` (py310+), and the `ci` workflow installs into a per-job
+  venv so a residual global ruff on self-hosted runners cannot pin an older rule set.
+
 ## [0.9.1] — 2026-09-02
 
 ### Fixed

@@ -89,9 +89,9 @@ def get_cached_tokens(resp_usage: Any) -> int:
     details = getattr(resp_usage, "prompt_tokens_details", None)
     if details is not None:
         val = getattr(details, "cached_tokens", 0)
-        return int(val) if isinstance(val, (int, float)) else 0
+        return int(val) if isinstance(val, int | float) else 0
     val = getattr(resp_usage, "cached_tokens", 0)
-    return int(val) if isinstance(val, (int, float)) else 0
+    return int(val) if isinstance(val, int | float) else 0
 
 
 def log_call(
