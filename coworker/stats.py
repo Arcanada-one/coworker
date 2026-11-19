@@ -43,7 +43,7 @@ def _num(val) -> float:
     A hand-edited or third-party-written JSONL line must not be able to take
     `stats` down with a ValueError, and `True` must not count as 1 token.
     """
-    return val if isinstance(val, (int, float)) and not isinstance(val, bool) else 0
+    return val if isinstance(val, int | float) and not isinstance(val, bool) else 0
 
 
 def aggregate_stats(records: list[dict], by: str = "provider") -> dict:

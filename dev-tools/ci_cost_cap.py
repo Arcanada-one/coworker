@@ -36,7 +36,7 @@ def total_cost(stats: dict) -> float:
         if not isinstance(metrics, dict):
             continue
         val = metrics.get("sum_cost_usd")
-        if isinstance(val, (int, float)):
+        if isinstance(val, int | float):
             total += float(val)
     return total
 

@@ -21,6 +21,8 @@ classifiers = [
 dependencies = [
   "openai>=1.0",
   "pyyaml>=6.0",
+  # pip-audit PYSEC-2026-4175/4176/4177: urllib3 2.7.0 -> 2.8.0 (transitive via openai)
+  "urllib3>=2.8.0",
 ]
 
 [project.optional-dependencies]
