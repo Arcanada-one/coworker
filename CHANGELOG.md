@@ -4,7 +4,16 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+### Security
+
+- **Pin `urllib3>=2.8.0`** so pip-audit no longer fails on PYSEC-2026-4175/4176/4177
+  (urllib3 2.7.0 arrived transitively via openai).
+
 ### Fixed
+
+- **Align `datarim_ref` with the public-surface reusable workflow pin** so the
+  checked-out linter matches `uses:` (workspace #1063).
+
 
 - **CI lint no longer fails on shared-runner ruff UP038.** `isinstance(..., (int, float))`
   sites now use `int | float` (py310+), and the `ci` workflow installs into a per-job
