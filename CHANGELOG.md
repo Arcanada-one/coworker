@@ -4,20 +4,32 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-11-22
+
 ### Security
 
-- **Pin `urllib3>=2.8.0`** so pip-audit no longer fails on PYSEC-2026-4175/4176/4177
-  (urllib3 2.7.0 arrived transitively via openai).
+- **Raise the `urllib3` dependency floor to 2.8.0** to cover PYSEC-2026-4175,
+  PYSEC-2026-4176, and PYSEC-2026-4177.
 
 ### Fixed
 
-- **Align `datarim_ref` with the public-surface reusable workflow pin** so the
-  checked-out linter matches `uses:` (workspace #1063).
+- **Keep CI compatible with current Ruff and shared runners.** The cached-token
+  and stats numeric checks use the Python 3.10 union form; CI installs into an
+  isolated per-job virtual environment, aligns the public-surface workflow pin,
+  and denies fork pull requests on self-hosted jobs.
+- **Make the RTK shim test portable on macOS** by looking up `jq` through the
+  default system path.
 
+### Changed
 
-- **CI lint no longer fails on shared-runner ruff UP038.** `isinstance(..., (int, float))`
-  sites now use `int | float` (py310+), and the `ci` workflow installs into a per-job
-  venv so a residual global ruff on self-hosted runners cannot pin an older rule set.
+- **Move release workflow jobs to the self-hosted `ci-general` runner** and
+  install release tools in the runner temporary directory.
+- **Add regression coverage** for cached-token parsing, the dependency floor,
+  and release runner policy.
+
+This release contains no new CLI feature or intentional change to command
+behavior. The changes since v0.9.1 are limited to dependency hardening, CI and
+release tooling, regression coverage, and documentation.
 
 ## [0.9.1] — 2026-09-02
 
