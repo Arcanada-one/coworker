@@ -20,4 +20,4 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64, ci-general]
     steps:
-      - uses: Arcanada-one/shared-workflows/.github/actions/governance-diff-guard@11cbbf2e5235ddc322b8f344836ea6ed4c67b0a2
+      - uses: Arcanada-one/shared-workflows/.github/actions/governance-diff-guard@e9cff997fe024f5f663e4e9e5f98685c4fb05fb8
