@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file. Format follows 
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-11-22
+
+### Fixed
+
+- **Release workflow tool checks.** The cosign and syft install steps now call
+  the installed binaries by their full path. A directory appended to
+  `GITHUB_PATH` applies only to later steps, so the v0.9.2 tag run stopped at
+  `cosign: command not found` before anything was built or published. v0.9.2
+  was never released; v0.9.3 carries the same changes plus this fix.
+
 ## [0.9.2] — 2026-11-22
 
 ### Security

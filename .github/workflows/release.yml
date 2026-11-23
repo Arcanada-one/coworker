@@ -153,7 +153,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/bin"
           install -m 0755 /tmp/cosign "${RUNNER_TEMP}/bin/cosign"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
-          cosign version
+          "${RUNNER_TEMP}/bin/cosign" version
 
       - name: Install syft (verified binary)
         run: |
@@ -165,7 +165,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/bin"
           install -m 0755 /tmp/syft "${RUNNER_TEMP}/bin/syft"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
-          syft version
+          "${RUNNER_TEMP}/bin/syft" version
 
       - name: Build wheel + sdist
         run: |
